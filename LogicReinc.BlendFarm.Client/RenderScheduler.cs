@@ -50,7 +50,7 @@ namespace LogicReinc.BlendFarm.Client
         {
             _owner = owner;
             SubTasks = subtasks;
-            _nodes = nodes.ToArray();
+            _nodes = nodes.Where(node => node.IsEnabled && node.Connected).ToArray();
             _useBatches = useBatches;
             _duplicateSlowTasks = duplicateSlowTasks;
             _queue = new LinkedList<RenderSubTask>(subtasks);
@@ -74,6 +74,8 @@ namespace LogicReinc.BlendFarm.Client
                 _owner.ReportProgress(1);
                 return;
             }
+            if (_nodes.Length == 0)
+                throw new InvalidOperationException(NodeConnectionPolicy.NoEnabledNodes);
             await Task.WhenAll(_nodes.Select(node => Task.Run(() => RunWorker(node, token))));
         }
 
@@ -82,7 +84,7 @@ namespace LogicReinc.BlendFarm.Client
             int consecutiveFailures = 0;
             try
             {
-                while (!token.IsCancellationRequested)
+                while (!token.IsCancellationRequested && node.IsEnabled && node.Connected)
                 {
                     Lease lease;
                     Task signal;
@@ -97,7 +99,7 @@ namespace LogicReinc.BlendFarm.Client
                     if (lease == null)
                     {
                         //Nothing to do right now, wait until the queue or the running work changes
-                        await WaitForChange(signal, deferred ? IDLE_RECHECK_MS : Timeout.Infinite, token).ConfigureAwait(false);
+                        await WaitForChange(signal, IDLE_RECHECK_MS, token).ConfigureAwait(false);
                         continue;
                     }
 

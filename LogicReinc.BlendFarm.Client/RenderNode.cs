@@ -19,7 +19,7 @@ namespace LogicReinc.BlendFarm.Client
     /// Top-level class to interact with an individual node
     /// Also has some PropertyChanged events for UI (not all)
     /// </summary>
-    public class RenderNode : INotifyPropertyChanged
+    public partial class RenderNode : INotifyPropertyChanged
     {
         //Used to specify the minimum server required version
         //Modified when protocol changes
@@ -119,12 +119,17 @@ namespace LogicReinc.BlendFarm.Client
                 }
             }
         }
-        public double DragOpacity => IsBeingDragged ? 0.65 : 1;
+        public double DragOpacity => (IsBeingDragged ? 0.65 : 1) * (IsEnabled ? 1 : 0.55);
 
         /// <summary>
         /// Render type this node will use
         /// </summary>
-        public RenderType RenderType { get; set; } = RenderType.OPTIX_GPUONLY;
+        private RenderType _renderType = RenderType.OPTIX_GPUONLY;
+        public RenderType RenderType
+        {
+            get => _renderType;
+            set { _renderType = value; TriggerPropChange(nameof(RenderType), nameof(RenderTypeBadge)); }
+        }
 
         //State
         /// <summary>
@@ -305,9 +310,14 @@ namespace LogicReinc.BlendFarm.Client
         public RenderNode()
         {
             OnConnected += (n) =>
+            {
+                UpdateConnectionTime(true);
                 TriggerPropChange(nameof(Connected), nameof(StatusLabel));
+            };
             OnDisconnected += (n) =>
             {
+                UpdateConnectionTime(false);
+                UpdatePreparedStatus(false);
                 foreach (string k in SyncedMap.Keys.ToList())
                     UpdateSyncedStatus(k, false);
                 TriggerPropChange(nameof(Connected), nameof(StatusLabel));
@@ -428,6 +438,14 @@ namespace LogicReinc.BlendFarm.Client
         /// </summary>
         public async Task Connect()
         {
+            _manualDisconnect = false;
+            await _connectLock.WaitAsync();
+            try { await ConnectCore(); }
+            finally { _connectLock.Release(); }
+        }
+
+        private async Task ConnectCore()
+        {
             if (!Connected)
             {
                 UpdateActivity("Connecting");
@@ -435,9 +453,24 @@ namespace LogicReinc.BlendFarm.Client
                 try
                 {
                     _currentLog.Clear();
-                    Client = await RenderClient.Connect(Address);
+                    int generation = _disconnectGeneration;
+                    RenderClient connection = await ConnectWithTimeout();
+                    if (generation != _disconnectGeneration)
+                    {
+                        connection.Disconnect();
+                        throw new OperationCanceledException("Connection cancelled by user");
+                    }
+                    Client = connection;
                     Client.OnConnected += (a) => OnConnected?.Invoke(this);
-                    Client.OnDisconnected += (a) => OnDisconnected?.Invoke(this);
+                    Client.OnDisconnected += (a) =>
+                    {
+                        if (Client != connection) return;
+                        Client = null;
+                        bool reconnect = _connectionAccepted;
+                        _connectionAccepted = false;
+                        OnDisconnected?.Invoke(this);
+                        if (reconnect) StartReconnect();
+                    };
                     Client.OnPacket += HandlePacket;
 
                     CheckProtocolResponse protocolResp = null;
@@ -447,10 +480,10 @@ namespace LogicReinc.BlendFarm.Client
                     }
                     catch (Exception ex)
                     {
-                        throw new InvalidOperationException("Outdated protocol, exception during check (" + ex.Message + ")");
+                        throw new InvalidOperationException("Protocol check failed (" + ex.Message + ")", ex);
                     }
                     if (protocolResp == null || Protocol.Version != protocolResp.ProtocolVersion)
-                        throw new InvalidOperationException($"Outdated protocol, update node before connecting (Protocol: {Protocol.Version}, Found: {protocolResp?.ProtocolVersion})");
+                        throw new NodeProtocolException(protocolResp?.ProtocolVersion.ToString() ?? "unknown", Protocol.Version.ToString());
 
                     if(protocolResp.RequireAuth)
                     {
@@ -465,7 +498,7 @@ namespace LogicReinc.BlendFarm.Client
                         }
                         catch(Exception ex)
                         {
-                            throw new InvalidDataException($"Authentication failed ({ex.Message})");
+                            throw new InvalidDataException($"Authentication failed ({ex.Message})", ex);
                         }
                     }
 
@@ -483,11 +516,13 @@ namespace LogicReinc.BlendFarm.Client
                     TriggerSystemInfoChanged();
 
                     UpdateException("");
+                    _connectionAccepted = true;
                     OnConnected?.Invoke(this);
                 }
                 catch(Exception ex)
                 {
-                    UpdateException(ex.Message);
+                    UpdateException(NodeConnectionPolicy.DescribeFailure(ex));
+                    ConnectionFailed?.Invoke(this, Exception);
                     //Close the half open connection, otherwise its socket and listen thread leak
                     RenderClient failed = Client;
                     Client = null;
@@ -548,6 +583,10 @@ namespace LogicReinc.BlendFarm.Client
         /// </summary>
         public void Disconnect()
         {
+            _manualDisconnect = true;
+            StopReconnect();
+            Interlocked.Increment(ref _disconnectGeneration);
+            _connectionAccepted = false;
             if (Connected)
                 Client.Disconnect();
             Client = null;
@@ -672,7 +711,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Prepare a version of blender on node
         /// </summary>
-        public async Task<PrepareResponse> PrepareVersion(string version)
+        public virtual async Task<PrepareResponse> PrepareVersion(string version)
         {
             if (Client == null)
                 throw new InvalidOperationException("Client not connected");
