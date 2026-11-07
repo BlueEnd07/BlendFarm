@@ -1,0 +1,62 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
+        x:Class="LogicReinc.BlendFarm.Windows.RenderHistoryWindow"
+        Title="Render History" Width="1020" Height="720" MinWidth="520" MinHeight="360"
+        Background="{StaticResource BlendFarmWindowBrush}">
+  <Window.Styles>
+    <StyleInclude Source="avares://Avalonia.Themes.Default/Accents/BaseDark.xaml"/>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*">
+    <Border Grid.Row="0" Background="{StaticResource BlendFarmSurfaceBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="0,0,0,1" Padding="16,12">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <TextBlock Text="Render History" FontSize="20" FontWeight="Bold"/>
+          <TextBlock x:Name="countText" Foreground="{StaticResource BlendFarmMutedTextBrush}" VerticalAlignment="Center"/>
+        </StackPanel>
+        <Button x:Name="clearAllButton" Grid.Column="1" Padding="12,7" Click="ClearAllClicked" Foreground="{StaticResource BlendFarmErrorBrush}" ToolTip.Tip="Remove every entry from the history (rendered images are not deleted)">Clear all</Button>
+      </Grid>
+    </Border>
+    <TextBlock x:Name="emptyText" Grid.Row="1" IsVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="30" Foreground="{StaticResource BlendFarmLabelBrush}" Text="No renders yet. Finished stills and animations show up here."/>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <ItemsControl x:Name="items" Margin="12">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <Border Width="284" Margin="6" Padding="10" CornerRadius="6" Background="{StaticResource BlendFarmCardBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" BorderThickness="1">
+              <StackPanel Spacing="3">
+                <Border Height="170" Background="#1A1A1A" CornerRadius="4" ClipToBounds="True" DoubleTapped="ThumbnailDoubleTapped" Cursor="Hand" ToolTip.Tip="Double-click to open the image">
+                  <Grid>
+                    <Image Source="{Binding Thumbnail}" Stretch="Uniform"/>
+                    <TextBlock Text="No preview" IsVisible="{Binding !HasThumbnail}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource BlendFarmHintBrush}"/>
+                    <Border IsVisible="{Binding IsAnimation}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2" CornerRadius="3" Background="#CC202020">
+                      <TextBlock Text="{Binding FrameBadge}" FontSize="11"/>
+                    </Border>
+                  </Grid>
+                </Border>
+                <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" ToolTip.Tip="{Binding Title}"/>
+                <TextBlock Text="{Binding DateText}" FontSize="12" Foreground="{StaticResource BlendFarmMutedTextBrush}"/>
+                <TextBlock Text="{Binding DetailText}" FontSize="12" Foreground="{StaticResource BlendFarmLabelBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DetailText}"/>
+                <TextBlock Text="{Binding PathText}" FontSize="11" Foreground="{StaticResource BlendFarmSubtleTextBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding PathTip}"/>
+                <TextBlock Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" FontSize="11" Foreground="{StaticResource BlendFarmWarningBrush}"/>
+                <Grid ColumnDefinitions="*,*,Auto" Margin="0,6,0,0">
+                  <Button Grid.Column="0" Margin="0,0,4,0" Padding="6,5" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsEnabled="{Binding CanOpenImage}" Click="OpenImageClicked">Open image</Button>
+                  <Button Grid.Column="1" Margin="4,0,4,0" Padding="6,5" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsEnabled="{Binding CanOpenFolder}" Click="OpenFolderClicked">Open folder</Button>
+                  <Button Grid.Column="2" Padding="8,5" Click="DeleteEntryClicked" ToolTip.Tip="Remove this entry from the history">
+                    <Image Source="/Icons/delete.png" Width="15" Height="15"/>
+                  </Button>
+                </Grid>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+  </Grid>
+</Window>
