@@ -52,7 +52,7 @@ namespace LogicReinc.BlendFarm.Windows
 
             Opened += (_, __) => RestoreWindowLayout();
             PositionChanged += (_, __) => RememberNormalBounds();
-            this.GetObservable(ClientSizeProperty).Subscribe(_ => RememberNormalBounds());
+            this.GetObservable(ClientSizeProperty).Subscribe(size => { RememberNormalBounds(); if (_layoutReady) ApplySideColumns(size.Width); });
             Closing += (_, __) => SaveWindowLayout();
             UpdatePresentationState();
         }
@@ -172,17 +172,42 @@ namespace LogicReinc.BlendFarm.Windows
             var columns = this.FindControl<Grid>("windowColumns").ColumnDefinitions;
             double left = ValidSize(layout.LeftWidth, 380, 300, 680);
             double right = ValidSize(layout.RightWidth, 460, 390, 800);
-            double available = Math.Max(690, Width - 252);
-            double excess = Math.Max(0, left + right - available);
-            left -= Math.Min(left - 300, excess);
-            right = Math.Max(390, Math.Min(right, available - left));
-            columns[0].Width = new GridLength(left);
-            columns[4].Width = new GridLength(right);
+            _preferredLeft = left;
+            _preferredRight = right;
+            ApplySideColumns(Width);
+            //A manual splitter drag defines the new preferred widths; window resizes only clamp them
+            foreach (var splitter in this.FindControl<Grid>("windowColumns").Children.OfType<GridSplitter>().Where(g => Grid.GetColumn(g) is 1 or 3))
+                splitter.DragCompleted += (_, __) =>
+                {
+                    var cols = this.FindControl<Grid>("windowColumns").ColumnDefinitions;
+                    _preferredLeft = cols[0].ActualWidth;
+                    _preferredRight = cols[4].ActualWidth;
+                };
             this.FindControl<Grid>("previewRows").RowDefinitions[3].Height = new GridLength(
                 Math.Min(ValidSize(layout.ActivityHeight, 280, 170, 3000), Math.Max(170, Height - 300)));
             _layoutReady = true;
             RememberNormalBounds();
             if (layout.Maximized) WindowState = WindowState.Maximized;
+        }
+
+        private double _preferredLeft = 380, _preferredRight = 460;
+
+        //Keeps the centre column usable: the side columns are fixed pixel widths and would otherwise
+        //overflow (and clip the render controls) when the window gets smaller than their sum.
+        private void ApplySideColumns(double windowWidth)
+        {
+            if (windowWidth <= 0) return;
+            var grid = this.FindControl<Grid>("windowColumns");
+            //The root grid keeps the star column's width from its last measure (the widest the content ever wanted)
+            //when the window shrinks, which pushed the right-hand render controls out of view. Force a fresh measure.
+            grid.InvalidateMeasure();
+            Avalonia.Threading.Dispatcher.UIThread.Post(grid.InvalidateMeasure, Avalonia.Threading.DispatcherPriority.Render);
+            var columns = grid.ColumnDefinitions;
+            var (left, right) = WindowColumnLayout.Clamp(_preferredLeft, _preferredRight, windowWidth);
+            if (!columns[0].Width.IsAbsolute || Math.Abs(columns[0].Width.Value - left) > 0.5)
+                columns[0].Width = new GridLength(left);
+            if (!columns[4].Width.IsAbsolute || Math.Abs(columns[4].Width.Value - right) > 0.5)
+                columns[4].Width = new GridLength(right);
         }
 
         private void RememberNormalBounds()
@@ -204,8 +229,9 @@ namespace LogicReinc.BlendFarm.Windows
                 X = (int)_normalWindowBounds.X,
                 Y = (int)_normalWindowBounds.Y,
                 Maximized = WindowState == WindowState.Maximized,
-                LeftWidth = columns[0].ActualWidth,
-                RightWidth = columns[4].ActualWidth,
+                //The preferred widths, not the currently clamped ones, so a small window doesn't shrink them for good
+                LeftWidth = _preferredLeft,
+                RightWidth = _preferredRight,
                 ActivityHeight = this.FindControl<Grid>("previewRows").RowDefinitions[3].ActualHeight
             };
             BlendFarmSettings.Instance.TrySave();

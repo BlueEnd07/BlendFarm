@@ -7,6 +7,45 @@ namespace LogicReinc.BlendFarm.Objects
     public partial class QueueItem
     {
         private volatile bool _executing;
+
+        //Live state of the current run, polled by the window's progress panels
+        private volatile System.Diagnostics.Stopwatch _runWatch;
+        private volatile int[] _runFrames;
+        private int _runCompleted;
+        private int _runCurrentFrame;
+        /// <summary>Elapsed time of the run in progress (zero before it starts).</summary>
+        public System.TimeSpan RunElapsed => _runWatch?.Elapsed ?? System.TimeSpan.Zero;
+        /// <summary>Frames of the animation being rendered (null for stills).</summary>
+        public int[] RunFrames => _runFrames;
+        /// <summary>Frames of this animation that are on disk, including ones skipped because they already existed.</summary>
+        public int RunCompletedFrames => System.Threading.Volatile.Read(ref _runCompleted);
+        public int RunCurrentFrame => System.Threading.Volatile.Read(ref _runCurrentFrame);
+        /// <summary>Time spent by earlier runs of this item (it was stopped and resumed), added to the next completion's duration.</summary>
+        public System.TimeSpan PriorRunTime { get; private set; }
+        /// <summary>Duration of the run that ended last.</summary>
+        public System.TimeSpan LastRunElapsed { get; private set; }
+        private void BeginRun(System.Diagnostics.Stopwatch watch)
+        {
+            _runFrames = null;
+            System.Threading.Volatile.Write(ref _runCompleted, 0);
+            _runWatch = watch;
+        }
+        private void SetRunFrames(int[] frames, int alreadyDone)
+        {
+            System.Threading.Volatile.Write(ref _runCompleted, alreadyDone);
+            System.Threading.Volatile.Write(ref _runCurrentFrame, frames.Length == 0 ? 0 : frames[System.Math.Min(alreadyDone, frames.Length - 1)]);
+            _runFrames = frames;
+        }
+        private void FrameDone(int frame)
+        {
+            System.Threading.Interlocked.Increment(ref _runCompleted);
+            System.Threading.Volatile.Write(ref _runCurrentFrame, frame);
+        }
+        private void EndRun(System.TimeSpan elapsed)
+        {
+            LastRunElapsed = elapsed;
+            PriorRunTime += elapsed;
+        }
         public bool Animation { get; set; }
         public int[] FrameNumbers { get; set; }
         public int FrameStep { get; set; } = 1;
@@ -22,6 +61,7 @@ namespace LogicReinc.BlendFarm.Objects
         {
             _executing = true;
             RefreshInfo();
+            _owner?.RefreshProgressUi(); //the timing rows switch to this item right away
         }
         private volatile bool _requeueOnCancel;
         /// <summary>Cancelled by the user (not failed, not finished), so it can be put back in the queue.</summary>
@@ -74,6 +114,7 @@ namespace LogicReinc.BlendFarm.Objects
             Exception = null;
             if (!failedFramesOnly)
             {
+                PriorRunTime = System.TimeSpan.Zero;
                 OutputTimestamp = null;
                 OutputFrameStart = null;
                 OutputFrameEnd = null;

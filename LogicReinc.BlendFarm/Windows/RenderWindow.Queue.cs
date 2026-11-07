@@ -108,6 +108,51 @@ namespace LogicReinc.BlendFarm.Windows
         {
             RaisePropertyChanged(QueueStatusProperty, null, QueueStatus);
             RaisePropertyChanged(QueueEtaProperty, null, QueueEta);
+            RefreshProgressUi();
+        }
+
+        private QueueItem _progressQueueItem;
+        /// <summary>
+        /// Keeps the timing rows, the progress summary and the pinned animation panel truthful for queue items,
+        /// which don't go through the manual render's own progress callbacks. Also resets stale numbers when idle.
+        /// </summary>
+        internal void RefreshProgressUi()
+        {
+            if (!Dispatcher.UIThread.CheckAccess()) { Dispatcher.UIThread.Post(RefreshProgressUi); return; }
+            QueueItem item;
+            lock (Queue) item = Queue.FirstOrDefault(candidate => candidate.IsRendering);
+            if (item != null)
+            {
+                if (!ReferenceEquals(_progressQueueItem, item) && _failedFramesPanel != null)
+                    _failedFramesPanel.IsVisible = false; //a new run: the previous run's failure report is history
+                _progressQueueItem = item;
+                TimeSpan elapsed = item.RunElapsed;
+                double progress = item.IsAnimation && item.RunFrames != null
+                    ? Math.Min(1, item.RunCompletedFrames / (double)Math.Max(1, item.RunFrames.Length))
+                    : item.Progress;
+                if (_lastRenderTime != null) _lastRenderTime.Text = FormatDuration(elapsed);
+                if (_estimatedRenderTime != null) _estimatedRenderTime.Text = GetEstimatedRemainingText(elapsed, progress);
+                if (item.IsAnimation && item.RunFrames != null && _animationProgressPanel != null && _animationFramesRendered != null)
+                {
+                    SetAnimationRowsVisible(true);
+                    _animationProgressPanel.IsVisible = true;
+                    UpdateSelectedAnimationProgress(elapsed, item.RunFrames, item.RunCompletedFrames, item.RunCurrentFrame);
+                }
+                UpdateCenterRenderProgress(progress);
+                return;
+            }
+            if (_progressQueueItem != null)
+            {
+                //The queue item that was driving the rows just ended: leave the final state behind
+                QueueItem ended = _progressQueueItem;
+                _progressQueueItem = null;
+                if (_lastRenderTime != null) _lastRenderTime.Text = FormatDuration(ended.LastRunElapsed);
+                if (_estimatedRenderTime != null)
+                    _estimatedRenderTime.Text = ended.Completed ? "Done" : ended.IsFailed ? "Failed" : "Stopped";
+                HideAnimationProgress();
+            }
+            if (!IsRendering)
+                UpdateCenterRenderProgress(0);
         }
         private void PersistQueueRunState()
         {
@@ -115,19 +160,22 @@ namespace LogicReinc.BlendFarm.Windows
             BlendFarmSettings.Instance.QueuePaused = _queueRunState.Paused;
             BlendFarmSettings.Instance.TrySave();
         }
-        public void PauseQueue()
+        public void PauseQueue() => PauseQueueCore("Queue paused; the current item will finish");
+        private void PauseQueueCore(string message)
         {
             _queueRunState.Pause();
             PersistQueueRunState();
             RefreshQueueTools();
-            AddActivityLog("Queue paused; the current item will finish", ActivityLogType.Warning);
+            AddActivityLog(message, ActivityLogType.Warning);
         }
         public async Task PauseQueueNow()
         {
-            PauseQueue();
             QueueItem item;
             lock (Queue) item = Queue.FirstOrDefault(candidate => candidate.IsRendering);
             //Back to queued afterwards, so the item runs again on resume instead of being lost
+            PauseQueueCore(item != null
+                ? $"Queue paused; stopped '{item.Name}' and put it back in the queue"
+                : "Queue paused; nothing was rendering");
             if (item != null) await item.CancelAndRequeue();
         }
         public void ResumeQueue()

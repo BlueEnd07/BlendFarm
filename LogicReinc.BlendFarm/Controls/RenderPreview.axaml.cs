@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -170,6 +171,12 @@ namespace LogicReinc.BlendFarm.Controls
             finally { _syncingCompare = false; }
             _historyButton.IsVisible = ShowHistoryButton;
             _toolbar.IsVisible = hasImage || ShowHistoryButton;
+            //Buttons appearing/disappearing change the toolbar's width, so it has to be measured and placed again
+            //(otherwise it keeps its old, narrower slot and the last button hangs over the right edge)
+            _toolbar.InvalidateMeasure();
+            (_toolbar.Child as Layoutable)?.InvalidateMeasure();
+            InvalidateMeasure();
+            InvalidateArrange();
             InvalidateVisual();
         }
 

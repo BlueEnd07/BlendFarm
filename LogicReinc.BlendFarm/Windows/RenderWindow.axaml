@@ -27,7 +27,7 @@
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="380" MinWidth="300" MaxWidth="680"/>
       <ColumnDefinition Width="6"/>
-      <ColumnDefinition Width="*" MinWidth="240"/>
+      <ColumnDefinition Width="*" MinWidth="280"/>
       <ColumnDefinition Width="6"/>
       <ColumnDefinition Width="460" MinWidth="390" MaxWidth="800"/>
     </Grid.ColumnDefinitions>
@@ -81,7 +81,7 @@
                     <Border Background="{StaticResource BlendFarmCardBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="11" Margin="0,0,0,10" Opacity="{Binding DragOpacity}" DragDrop.AllowDrop="True">
                       <Expander IsExpanded="{Binding IsInspectorExpanded}">
                         <Expander.Header>
-                          <Grid ColumnDefinitions="14,*,Auto,Auto,Auto">
+                          <Grid ColumnDefinitions="14,*,Auto,Auto" RowDefinitions="Auto,Auto">
                             <Grid Grid.Column="0" Width="10" Height="10" VerticalAlignment="Center">
                               <Ellipse Fill="{StaticResource BlendFarmErrorBrush}" IsVisible="{Binding !Connected}"/>
                               <Ellipse Fill="{StaticResource BlendFarmWarningBrush}">
@@ -112,7 +112,7 @@
                             <Border Grid.Column="2" Background="{StaticResource BlendFarmErrorBackgroundBrush}" BorderBrush="{StaticResource BlendFarmErrorBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="5,2" IsVisible="{Binding !Connected}">
                               <TextBlock Text="{Binding StatusLabel}" Foreground="{StaticResource BlendFarmErrorBrush}" FontSize="10" FontWeight="Bold"/>
                             </Border>
-                            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="2,4,0,0">
                               <Button Background="Transparent" BorderThickness="0" Padding="3" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ConfigureNode}" CommandParameter="{Binding .}" ToolTip.Tip="Node settings">
                                 <Image Source="/Icons/gear.png" Height="15" Width="15"/>
                               </Button>
@@ -132,7 +132,7 @@
                                 <TextBlock Text="⏱" FontSize="15" Foreground="{StaticResource BlendFarmTextBrush}"/>
                               </Button>
                             </StackPanel>
-                            <Border Grid.Column="4" Background="{StaticResource BlendFarmRaisedBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2" Margin="8,0,0,0" VerticalAlignment="Center" PointerPressed="NodeInspectorPointerPressed" PointerMoved="NodeInspectorPointerMoved" ToolTip.Tip="Drag to reorder this node">
+                            <Border Grid.Column="3" Background="{StaticResource BlendFarmRaisedBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2" Margin="8,0,0,0" VerticalAlignment="Center" PointerPressed="NodeInspectorPointerPressed" PointerMoved="NodeInspectorPointerMoved" ToolTip.Tip="Drag to reorder this node">
                               <TextBlock Text="::" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontWeight="Bold"/>
                             </Border>
                           </Grid>
@@ -300,13 +300,15 @@
             <TextBlock Grid.Column="0" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" FontWeight="Bold">RENDER PROGRESS</TextBlock>
             <TextBlock Grid.Column="1" x:Name="renderProgressSummary" Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12">Idle</TextBlock>
           </Grid>
-          <ListBox Grid.Row="1" Classes="nodeCards" Items="{Binding Nodes}" Background="Transparent" BorderBrush="Transparent" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
-            <ListBox.ItemsPanel>
+          <!--A ScrollViewer around a plain ItemsControl: the cards' combined width must never become the desired width of the centre column-->
+          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Stretch" ClipToBounds="True">
+          <ItemsControl Items="{Binding Nodes}">
+            <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
                 <StackPanel Orientation="Horizontal"/>
               </ItemsPanelTemplate>
-            </ListBox.ItemsPanel>
-            <ListBox.ItemTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
               <DataTemplate>
                 <Border Width="250" Height="82" Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="11" Margin="0,0,10,0">
                   <Grid RowDefinitions="Auto,Auto,*">
@@ -321,8 +323,9 @@
                   </Grid>
                 </Border>
               </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          </ScrollViewer>
           <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{StaticResource BlendFarmSoftBorderBrush}" ResizeDirection="Rows"/>
           <WrapPanel Grid.Row="3" Margin="0,6,0,2">
             <TextBlock VerticalAlignment="Center" Margin="0,0,10,4" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" FontWeight="Bold">ACTIVITY LOG</TextBlock>

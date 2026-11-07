@@ -146,6 +146,8 @@ namespace LogicReinc.BlendFarm.Windows
             _renderingProject = project;
             _renderCancelRequested = false;
             RaiseIsRenderingChanged();
+            //The previous render's "complete" toast is about something else now
+            Dispatcher.UIThread.Post(HideToast);
             return true;
         }
         private void EndRender()
@@ -153,6 +155,7 @@ namespace LogicReinc.BlendFarm.Windows
             _renderingProject = null;
             Interlocked.Exchange(ref _renderBusy, 0);
             RaiseIsRenderingChanged();
+            Dispatcher.UIThread.Post(RefreshProgressUi);
         }
         private void RaiseIsRenderingChanged()
         {
@@ -308,6 +311,7 @@ namespace LogicReinc.BlendFarm.Windows
 
             Init();
         }
+        private bool _cardsAutoCollapsed;
         private void Init()
         {
             OS = SystemInfo.GetOSName();
@@ -316,6 +320,7 @@ namespace LogicReinc.BlendFarm.Windows
             {
                 //With three or more nodes the cards start collapsed so several fit on screen
                 bool collapseCards = Manager.Nodes.Count >= 3;
+                _cardsAutoCollapsed = collapseCards;
                 foreach(RenderNode node in Manager.Nodes.ToList())
                 {
                     if (collapseCards) node.IsInspectorExpanded = false;
@@ -325,6 +330,13 @@ namespace LogicReinc.BlendFarm.Windows
                 Manager.OnNodeAdded += (manager, node) => Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (Nodes.Count >= 2) node.IsInspectorExpanded = false;
+                    //The third node arriving collapses the cards that are already there too (once: a card the user
+                    //expands afterwards stays expanded)
+                    if (!_cardsAutoCollapsed && Nodes.Count + 1 >= 3)
+                    {
+                        _cardsAutoCollapsed = true;
+                        foreach (RenderNode existing in Nodes) existing.IsInspectorExpanded = false;
+                    }
                     Nodes.Add(node);
                     AttachNodeActivity(node);
                     AddActivityLog($"{node.NodeTitle} added");
@@ -951,10 +963,13 @@ namespace LogicReinc.BlendFarm.Windows
 
             progress = Math.Max(0, Math.Min(1, progress));
             int activeNodes = Nodes.Count(x => x.Connected && !string.IsNullOrWhiteSpace(x.Activity));
-            if (CurrentProject?.CurrentTask != null)
+            //A percentage only while something is actually rendering; afterwards it would be a stale number
+            if (IsRendering)
                 _renderProgressSummary.Text = $"{progress * 100:0}% complete";
             else if (activeNodes > 0)
                 _renderProgressSummary.Text = $"{activeNodes} active node{(activeNodes == 1 ? "" : "s")}";
+            else if (_queueRunState.Paused)
+                _renderProgressSummary.Text = "Paused";
             else
                 _renderProgressSummary.Text = "Idle";
         }
@@ -1364,7 +1379,8 @@ namespace LogicReinc.BlendFarm.Windows
 
         public async Task Render(bool noSync, bool noExcep = false)
         {
-            await TryRender(noSync, noExcep);
+            if (!await TryRender(noSync, noExcep) && !noSync)
+                AddActivityLog("Render Now ignored: another render is already running", ActivityLogType.Warning);
         }
 
         /// <summary>
@@ -1372,14 +1388,12 @@ namespace LogicReinc.BlendFarm.Windows
         /// </summary>
         private async Task<bool> TryRender(bool noSync, bool noExcep)
         {
-            if (!noSync && HasActiveQueueItems())
-            {
-                //Render Now is an explicit start: it overrides a pause or a pending schedule
-                if (_queueRunState.Paused || _queueRunState.ScheduledStart.HasValue)
-                    AddActivityLog("Render Now: starting the queue", ActivityLogType.Info);
-                ResumeQueue();
-                return true;
-            }
+            //Render Now always renders what the Render tab currently says, right away. Queued items are started
+            //with Start / Resume only, so a paused or scheduled queue stays exactly as it was. Two renders can't
+            //overlap: TryBeginRender below refuses while a queue item (or anything else) owns the nodes, and the
+            //queue loop in turn waits for this render to release them.
+            if (!noSync && HasActiveQueueItems() && (_queueRunState.Paused || _queueRunState.ScheduledStart.HasValue))
+                AddActivityLog("Render Now: rendering the current settings; the queue stays " + (_queueRunState.Paused ? "paused" : "scheduled"), ActivityLogType.Info);
 
             OpenBlenderProject currentProject = CurrentProject;
             if (currentProject == null)
@@ -2685,12 +2699,13 @@ namespace LogicReinc.BlendFarm.Windows
             int connectedNodes = Manager?.Nodes?.Count(x => x.Connected) ?? 0;
             return new RenderCompletionInfo()
             {
-                SceneName = string.IsNullOrEmpty(settings?.Scene) ? proj?.Name : settings.Scene,
+                SceneName = QueueItem.SceneLabel(settings, proj),
                 BlendFile = proj?.BlendFile,
                 Success = success,
                 IsAnimation = isAnimation,
-                FrameStart = proj?.FrameStart ?? 0,
-                FrameEnd = proj?.FrameEnd ?? 0,
+                //A still is a single frame: the one that was rendered, not the project's animation range
+                FrameStart = isAnimation ? proj?.FrameStart ?? 0 : settings?.Frame ?? proj?.FrameStart ?? 0,
+                FrameEnd = isAnimation ? proj?.FrameEnd ?? 0 : settings?.Frame ?? proj?.FrameStart ?? 0,
                 FrameCount = isAnimation ? Math.Max(1, (proj?.FrameEnd ?? 0) - (proj?.FrameStart ?? 0) + 1) : 1,
                 Elapsed = elapsed,
                 NodeCount = connectedNodes,
@@ -2699,6 +2714,13 @@ namespace LogicReinc.BlendFarm.Windows
                 Samples = settings?.Samples ?? 0,
                 EngineOrError = success ? (settings?.Engine.ToString() ?? "") : error
             };
+        }
+
+        private void HideToast()
+        {
+            _toastTimer?.Stop();
+            if (_toastOverlay != null)
+                _toastOverlay.IsVisible = false;
         }
 
         private void ShowToast(RenderCompletionInfo info)

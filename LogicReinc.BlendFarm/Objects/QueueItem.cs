@@ -98,6 +98,18 @@ namespace LogicReinc.BlendFarm.Objects
             SkipExistingFrames = proj?.SkipExistingFrames;
         }
 
+        /// <summary>
+        /// The scene a render is for: the settings' scene, else the project's selected scene, else its first scene,
+        /// and only as a last resort the project's name.
+        /// </summary>
+        public static string SceneLabel(RenderManagerSettings settings, OpenBlenderProject project)
+        {
+            if (!string.IsNullOrWhiteSpace(settings?.Scene)) return settings.Scene;
+            if (!string.IsNullOrWhiteSpace(project?.Scene)) return project.Scene;
+            string first = project?.ScenesAvailable?.FirstOrDefault(scene => !string.IsNullOrWhiteSpace(scene));
+            return !string.IsNullOrWhiteSpace(first) ? first : project?.Name;
+        }
+
         private static string CompactPath(string path)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -196,7 +208,7 @@ namespace LogicReinc.BlendFarm.Objects
         {
             return new OutputNameContext()
             {
-                Scene = string.IsNullOrEmpty(Settings.Scene) ? Project?.Name : Settings.Scene,
+                Scene = SceneLabel(Settings, Project),
                 Camera = Settings.Camera,
                 Engine = Settings.Engine.ToString(),
                 Format = Settings.RenderFormat,
@@ -213,9 +225,11 @@ namespace LogicReinc.BlendFarm.Objects
         private RenderCompletionInfo BuildCompletionInfo(bool success, TimeSpan elapsed, string error, BlendFarmManager manager)
         {
             int endFrame = IsAnimation ? GetFrameNumbers().Last() : Settings.Frame;
+            //A resumed item reports the total time of all its runs, not just the last one
+            elapsed += PriorRunTime;
             return new RenderCompletionInfo()
             {
-                SceneName = string.IsNullOrEmpty(Settings?.Scene) ? Project?.Name : Settings.Scene,
+                SceneName = SceneLabel(Settings, Project),
                 BlendFile = Project?.BlendFile,
                 Success = success,
                 IsAnimation = IsAnimation,
@@ -240,6 +254,7 @@ namespace LogicReinc.BlendFarm.Objects
             OutputTimestamp = _runTimestamp;
             Stopwatch queueWatch = Stopwatch.StartNew();
             int savedFrames = 0;
+            BeginRun(queueWatch);
             try
             {
                 OutputFrameStart ??= Settings.Frame;
@@ -339,6 +354,7 @@ namespace LogicReinc.BlendFarm.Objects
                     List<int> skipFrames = (SkipExistingFrames ?? Project?.SkipExistingFrames ?? false)
                         ? selectedFrames.Where(frame => File.Exists(Path.Combine(SaveTo, OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(frame, Settings.Frame, endFrame))))).ToList()
                         : new List<int>();
+                    SetRunFrames(selectedFrames, skipFrames.Count);
                     if (skipFrames.Count == selectedFrames.Length)
                     {
                         FinishedAllFrames = true;
@@ -366,6 +382,7 @@ namespace LogicReinc.BlendFarm.Objects
                         }
 
                         Interlocked.Increment(ref savedFrames);
+                        FrameDone(task.Frame);
                         try
                         {
                             SKBitmap image = ImageConverter.Convert(frame.Image, task.Parent.Settings.RenderFormat);
@@ -461,6 +478,7 @@ namespace LogicReinc.BlendFarm.Objects
             finally
             {
                 if (savedFrames > 0) _owner.RecordQueueTiming(savedFrames, queueWatch.Elapsed);
+                EndRun(queueWatch.Elapsed);
                 _executing = false;
                 Project.SetRenderTask(null);
                 ApplyPendingRequeue();
