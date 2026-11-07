@@ -19,7 +19,7 @@ namespace LogicReinc.BlendFarm.Tests
     /// Drives the render scheduler with fake nodes, no Blender or network needed
     /// </summary>
     [TestClass]
-    public class SchedulerTests
+    public partial class SchedulerTests
     {
         private const string Version = "3.6.0";
         private const string Session = "session";

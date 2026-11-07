@@ -69,6 +69,9 @@ namespace LogicReinc.BlendFarm
         /// Persisted render queue (only items that were still queued when saved)
         /// </summary>
         public List<QueueItemDTO> RenderQueue { get; set; } = new List<QueueItemDTO>();
+        public DateTimeOffset? QueueScheduledStart { get; set; }
+        public bool QueuePaused { get; set; }
+        public string FfmpegPath { get; set; } = "";
 
         /// <summary>Main-window layout in logical units (position uses desktop pixels).</summary>
         public RenderWindowLayout WindowLayout { get; set; } = new RenderWindowLayout();
@@ -191,6 +194,10 @@ namespace LogicReinc.BlendFarm
 
         public class UIProjectSettings
         {
+            public int FrameStep { get; set; } = 1;
+            public string FrameList { get; set; } = "";
+            public bool EncodeMp4 { get; set; }
+            public int EncodingFPS { get; set; }
             public bool UseNetworked { get; set; }
             public string NetworkPathWindows { get; set; }
             public string NetworkPathLinux { get; set; }

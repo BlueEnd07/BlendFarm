@@ -1527,6 +1527,13 @@ namespace LogicReinc.BlendFarm.Windows
             if (currentProject == null || IsRendering)
                 return;
 
+            try { currentProject.GetAnimationFrames(); }
+            catch (FormatException ex)
+            {
+                await MessageWindow.Show(this, "Invalid frames", ex.Message);
+                return;
+            }
+
             //Validate provided fileformat
             if(string.IsNullOrEmpty(currentProject.AnimationFileFormat) || !currentProject.AnimationFileFormat.Contains("#"))
             {
@@ -1567,12 +1574,21 @@ namespace LogicReinc.BlendFarm.Windows
 
         private async Task RenderAnimationInternal(OpenBlenderProject currentProject, string animationFileFormat, string outputDir)
         {
+            int[] selectedFrames = currentProject.GetAnimationFrames().ToArray();
+            int firstFrame = selectedFrames.First();
+            int lastFrame = selectedFrames.Last();
+            bool encodeMp4 = currentProject.EncodeMp4;
+            int encodingFPS = currentProject.EncodingFPS;
+            bool skipExisting = currentProject.SkipExistingFrames;
+            DateTime renderStartTime = DateTime.Now;
+            PersistAnimationSettings(currentProject);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 this._imageProgress.IsVisible = true;
                 this._imageProgress.IsIndeterminate = true;
                 ResetRenderTiming();
-                ResetAnimationProgress(currentProject.FrameStart, currentProject.FrameEnd);
+                ResetAnimationProgress(firstFrame, lastFrame);
+                if (_failedFramesPanel != null) _failedFramesPanel.IsVisible = false;
             });
 
             RenderManagerSettings settings = null;
@@ -1583,6 +1599,7 @@ namespace LogicReinc.BlendFarm.Windows
                 await SyncProjectBeforeRender(currentProject);
 
                 settings = await Dispatcher.UIThread.InvokeAsync(() => GetSettingsFromUI(currentProject));
+                settings.Frame = firstFrame;
 
                 if (_renderCancelRequested)
                 {
@@ -1594,33 +1611,38 @@ namespace LogicReinc.BlendFarm.Windows
                 {
                     watch.Start();
                     int completedFrames = 0;
-                    int totalFrames = Math.Max(1, currentProject.FrameEnd - currentProject.FrameStart + 1);
+                    int totalFrames = selectedFrames.Length;
                     DateTime lastFrameFinishedAt = DateTime.UtcNow;
                     //Captured once so every frame of a run shares the same {date}/{time} tokens.
-                    DateTime renderStartTime = DateTime.Now;
 
                     //Resume: leave out frames that already have an output file
                     List<int> skipFrames = new List<int>();
-                    if (currentProject.SkipExistingFrames)
+                    if (skipExisting)
                     {
-                        skipFrames = OutputNaming.FindExistingFrames(outputDir, currentProject.FrameStart, currentProject.FrameEnd,
-                            (f) => OutputNaming.FormatOutputFileName(animationFileFormat, BuildOutputContext(currentProject, settings, f, renderStartTime)));
+                        skipFrames = selectedFrames.Where(frame => File.Exists(Path.Combine(outputDir,
+                            OutputNaming.FormatOutputFileName(animationFileFormat, BuildAnimationOutputContext(currentProject, settings, frame, firstFrame, lastFrame, renderStartTime))))).ToList();
                         completedFrames = skipFrames.Count;
                         if (skipFrames.Count > 0)
                             Dispatcher.UIThread.Post(() => AddActivityLog($"Skipping {skipFrames.Count} frame(s) already in the output folder"));
                         if (skipFrames.Count >= totalFrames)
                         {
                             await Dispatcher.UIThread.InvokeAsync(() => this._imageProgress.IsVisible = false);
+                            if (encodeMp4)
+                            {
+                                await EncodeAnimationAsync(currentProject, animationFileFormat, outputDir, selectedFrames.Select(frame => Path.Combine(outputDir,
+                                    OutputNaming.FormatOutputFileName(animationFileFormat, BuildAnimationOutputContext(currentProject, settings, frame, firstFrame, lastFrame, renderStartTime)))).ToArray(), encodingFPS);
+                                return;
+                            }
                             await MessageWindow.ShowOnUIThread(this, "Nothing to render", "All frames already exist in the output folder.\nDisable 'Skip existing frames' to render them again.");
                             return;
                         }
                     }
 
                     //Create Task
-                    rtask = Manager.GetAnimationTask(currentProject.BlendFile, currentProject.FrameStart, currentProject.FrameEnd, settings, (task, frame) =>
+                    rtask = Manager.GetAnimationTask(currentProject.BlendFile, firstFrame, lastFrame, settings, (task, frame) =>
                     {
                         int renderedFrame = task.Frame;
-                        string fileName = OutputNaming.FormatOutputFileName(animationFileFormat, BuildOutputContext(currentProject, settings, task.Frame, renderStartTime));
+                        string fileName = OutputNaming.FormatOutputFileName(animationFileFormat, BuildAnimationOutputContext(currentProject, settings, task.Frame, firstFrame, lastFrame, renderStartTime));
                         string filePath = Path.Combine(outputDir, fileName);
 
                         //Save synchronously and let failures throw, so the frame is retried instead of silently lost
@@ -1671,11 +1693,12 @@ namespace LogicReinc.BlendFarm.Windows
                             }
                             double progress = rtask?.Progress ?? ((double)renderedCount / totalFrames);
                             UpdateRenderTiming(watch, progress);
-                            UpdateAnimationProgress(watch.Elapsed, currentProject.FrameStart, currentProject.FrameEnd, renderedCount, renderedFrame + 1);
+                            UpdateSelectedAnimationProgress(watch.Elapsed, selectedFrames, renderedCount, renderedFrame);
                             RecordRenderedFrames(1, frameDuration);
                             AddActivityLog($"Saved frame {task.Frame} as {fileName} ({renderedCount}/{totalFrames})");
                         });
                     }, skipFrames);
+                    ((AnimationTask)rtask).SelectedFrames = selectedFrames;
                     RenderTask localTask = rtask;
                     await Dispatcher.UIThread.InvokeAsync(() => currentProject.SetRenderTask(localTask));
                     AttachRenderTaskActivityLogging(rtask);
@@ -1688,7 +1711,7 @@ namespace LogicReinc.BlendFarm.Windows
                             this._imageProgress.IsIndeterminate = false;
                             this._imageProgress.Value = progress * 100;
                             UpdateRenderTiming(watch, progress);
-                            UpdateAnimationProgress(watch.Elapsed, currentProject.FrameStart, currentProject.FrameEnd, completedFrames, currentProject.FrameStart + completedFrames);
+                            UpdateSelectedAnimationProgress(watch.Elapsed, selectedFrames, completedFrames, selectedFrames[Math.Min(completedFrames, selectedFrames.Length - 1)]);
                         });
                     };
                     _ = Dispatcher.UIThread.InvokeAsync(() => StartingRender(localTask));
@@ -1705,12 +1728,15 @@ namespace LogicReinc.BlendFarm.Windows
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         UpdateRenderTiming(watch, success ? 1 : finalProgress);
-                        UpdateAnimationProgress(watch.Elapsed, currentProject.FrameStart, currentProject.FrameEnd, completedFrames, success ? currentProject.FrameEnd : currentProject.FrameStart + completedFrames);
+                        UpdateSelectedAnimationProgress(watch.Elapsed, selectedFrames, completedFrames, selectedFrames[Math.Min(completedFrames, selectedFrames.Length - 1)]);
                         this._imageProgress.IsVisible = false;
                         if (success)
                         {
                             AddActivityLog($"Animation render completed in {FormatDuration(watch.Elapsed)}", ActivityLogType.Success);
                             RenderCompletionInfo info = BuildCompletionInfo(currentProject, settings, true, true, watch.Elapsed, null);
+                            info.FrameStart = firstFrame;
+                            info.FrameEnd = lastFrame;
+                            info.FrameCount = selectedFrames.Length;
                             info.OutputDirectory = outputDir;
                             NotifyRenderCompleted(info);
                         }
@@ -1718,15 +1744,20 @@ namespace LogicReinc.BlendFarm.Windows
                             AddActivityLog("Animation render stopped before completion", ActivityLogType.Warning);
                     });
                     if (success)
-                        _ = MessageWindow.ShowOnUIThread(this, "Animation Rendered", $"Frames {currentProject.FrameStart} to {currentProject.FrameEnd} rendered.\nLocated at {outputDir}.");
+                        _ = MessageWindow.ShowOnUIThread(this, "Animation Rendered", $"{selectedFrames.Length} selected frames rendered.\nLocated at {outputDir}.");
 
                     watch.Stop();
+                    if (success && encodeMp4)
+                        await EncodeAnimationAsync(currentProject, animationFileFormat, outputDir, selectedFrames.Select(frame => Path.Combine(outputDir,
+                            OutputNaming.FormatOutputFileName(animationFileFormat, BuildAnimationOutputContext(currentProject, settings, frame, firstFrame, lastFrame, renderStartTime)))).ToArray(), encodingFPS);
                 });
             }
             catch (Exception ex)
             {
                 //Cancelling tears down the render, the resulting exception is not a failure
                 bool cancelled = (rtask?.Cancelled ?? false) || _renderCancelRequested;
+                if (rtask is AnimationTask animation && !cancelled)
+                    ShowManualAnimationFailures(animation, currentProject, settings, animationFileFormat, outputDir, renderStartTime);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     this._imageProgress.IsVisible = false;
@@ -1825,13 +1856,19 @@ namespace LogicReinc.BlendFarm.Windows
                     {
                         await Task.Delay(500, token);
 
-                        QueueItem item = GetNextQueueItem();
-                        if (item == null)
-                            break;
-
-                        //Wait for a manual render or benchmark to release the nodes
-                        if (!TryBeginRender(item.Project))
+                        if (!_queueRunState.CanStart(DateTimeOffset.Now))
                             continue;
+
+                        QueueItem item;
+                        lock (Queue)
+                        {
+                            item = GetNextQueueItem();
+                            if (item == null)
+                                break;
+                            if (!TryBeginRender(item.Project))
+                                continue;
+                            item.ReserveForExecution();
+                        }
                         try
                         {
                             await item.Execute(this, Manager);
@@ -1921,12 +1958,33 @@ namespace LogicReinc.BlendFarm.Windows
 
             RenderManagerSettings settings = GetSettingsFromUI(proj);
 
+            int[] selectedFrames;
+            try
+            {
+                selectedFrames = proj.GetAnimationFrames().ToArray();
+                if (string.IsNullOrWhiteSpace(proj.AnimationFileFormat) || !proj.AnimationFileFormat.Contains("#"))
+                    throw new FormatException("Frame filenames must include #.");
+                if (!OutputNaming.TryValidateTemplate(proj.AnimationFileFormat, out string formatError)) throw new FormatException(formatError);
+            }
+            catch (FormatException ex)
+            {
+                await MessageWindow.Show(this, "Invalid animation settings", ex.Message);
+                return;
+            }
+            settings.Frame = selectedFrames.First();
+
             string saveTo = await OpenFolderDialog("Directory to save frames to");
             if (string.IsNullOrEmpty(saveTo)) return;
             RememberOutputFolder(proj, saveTo);
 
-            QueueItem item = new QueueItem(this, proj, settings, saveTo, (proj.FrameEnd - proj.FrameStart) + 1)
+            QueueItem item = new QueueItem(this, proj, settings, saveTo, selectedFrames.Length)
             {
+                Animation = true,
+                FrameNumbers = selectedFrames,
+                FrameStep = proj.FrameStep,
+                FrameList = proj.FrameList,
+                EncodeMp4 = proj.EncodeMp4,
+                EncodingFPS = proj.EncodingFPS,
                 FrameFormat = proj.AnimationFileFormat
             };
 

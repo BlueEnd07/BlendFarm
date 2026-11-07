@@ -437,15 +437,26 @@
                   </Border>
                 </Expander>
                 <!--SECTION: Frames-->
-                <Expander x:Name="sectionFrames" Header="Frames" IsExpanded="True" Margin="0,0,0,10">
+                <Expander x:Name="sectionFrames" Header="Frames" IsExpanded="True" Margin="0,0,0,10" LostFocus="AnimationOptionsChanged">
                   <Border Background="{StaticResource BlendFarmPanelBrush}" CornerRadius="6" Padding="12">
                     <StackPanel Spacing="8">
-                      <Grid ColumnDefinitions="88,*" RowDefinitions="Auto,Auto">
+                      <Grid ColumnDefinitions="88,*" RowDefinitions="Auto,Auto,Auto,Auto">
                         <TextBlock VerticalAlignment="Center">Frame start</TextBlock>
                         <NumericUpDown Grid.Column="1" Value="{Binding CurrentProject.FrameStart}"/>
                         <TextBlock Grid.Row="1" VerticalAlignment="Center">Frame end</TextBlock>
                         <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding CurrentProject.FrameEnd}"/>
+                        <TextBlock Grid.Row="2" VerticalAlignment="Center">Step</TextBlock>
+                        <NumericUpDown Grid.Row="2" Grid.Column="1" Minimum="1" Value="{Binding CurrentProject.FrameStep}"/>
+                        <TextBlock Grid.Row="3" VerticalAlignment="Center">Frames</TextBlock>
+                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding CurrentProject.FrameList}" Watermark="1-50, 75, 100-120" ToolTip.Tip="Optional list overrides frame start, end and step"/>
                       </Grid>
+                      <TextBlock Text="{Binding CurrentProject.FrameSelectionError}" Foreground="{StaticResource BlendFarmErrorBrush}" TextWrapping="Wrap"/>
+                      <CheckBox IsChecked="{Binding CurrentProject.EncodeMp4}">Encode MP4 when done</CheckBox>
+                      <Grid ColumnDefinitions="88,*">
+                        <TextBlock VerticalAlignment="Center">MP4 FPS</TextBlock>
+                        <NumericUpDown Grid.Column="1" Minimum="1" Maximum="240" Value="{Binding CurrentProject.EncodingFPS}"/>
+                      </Grid>
+                      <TextBox Text="{Binding FfmpegPath}" Watermark="ffmpeg path (blank uses PATH)" ToolTip.Tip="Optional path to the ffmpeg executable"/>
                     </StackPanel>
                   </Border>
                 </Expander>
@@ -562,13 +573,25 @@
             </ScrollViewer>
           </Grid>
         </TabItem>
-        <TabItem Header="{Binding QueueName}">
+        <TabItem Header="{Binding QueueName}" AttachedToVisualTree="QueueToolsAttached">
           <!--BEGIN QUEUE-->
           <DockPanel LastChildFill="True">
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="6,6,6,4">
+            <StackPanel DockPanel.Dock="Top" Margin="6,6,6,4" Spacing="6">
+              <TextBlock Text="{Binding QueueStatus}" FontWeight="Bold" Foreground="{StaticResource BlendFarmMutedTextBrush}"/>
+              <TextBlock Text="{Binding QueueEta}" Foreground="{StaticResource BlendFarmSubtleTextBrush}"/>
+              <WrapPanel>
+              <Button Padding="10,5" Margin="0,0,6,6" Command="{Binding ResumeQueue}">Start / Resume</Button>
+              <Button Padding="10,5" Margin="0,0,6,6" Command="{Binding PauseQueue}">Pause</Button>
+              <Button Padding="10,5" Margin="0,0,6,6" Command="{Binding PauseQueueNow}" ToolTip.Tip="Pause the queue and cancel its current item">Pause and stop now</Button>
+              <Button Padding="10,5" Margin="0,0,6,6" Command="{Binding ScheduleQueue}">Start at...</Button>
+              <Button Padding="10,5" Margin="0,0,6,6" Command="{Binding CancelQueueSchedule}">Cancel schedule</Button>
+              </WrapPanel>
+              <WrapPanel>
               <Button Padding="10,5" Margin="0,0,6,0" Command="{Binding SaveQueue}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Save the queued items to disk">Save</Button>
               <Button Padding="10,5" Margin="0,0,6,0" Command="{Binding LoadQueue}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Load a previously saved queue">Load</Button>
               <Button Padding="10,5" Command="{Binding ClearQueue}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Foreground="{StaticResource BlendFarmErrorBrush}" ToolTip.Tip="Remove all items that aren't currently rendering">Clear</Button>
+              <Button Padding="10,5" Margin="6,0,0,0" Command="{Binding RetryAllFailed}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}">Retry all failed</Button>
+              </WrapPanel>
             </StackPanel>
             <ListBox Items="{Binding Queue}" Background="Transparent" BorderBrush="{StaticResource BlendFarmBorderBrush}" Padding="6" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
               <ListBox.ItemTemplate>
@@ -579,8 +602,12 @@
                         <TextBlock Text="{Binding Name}" Foreground="{StaticResource BlendFarmTextBrush}" FontWeight="Bold" FontSize="14" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding SettingsSummary}" Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,3,8,0"/>
                         <TextBlock Text="{Binding State}" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="12" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding FailedFramesSummary}" IsVisible="{Binding HasFailedFrames}" Foreground="{StaticResource BlendFarmErrorBrush}" FontSize="12" TextWrapping="Wrap"/>
+                        <Button Content="Re-render failed frames" IsVisible="{Binding HasFailedFrames}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=RetryFailedQueueFrames}" CommandParameter="{Binding .}" Margin="0,6,0,0"/>
                       </StackPanel>
                       <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Button Padding="8,5" Margin="0,0,6,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=EditQueueItem}" CommandParameter="{Binding .}">Edit</Button>
+                        <Button Padding="8,5" Margin="0,0,6,0" IsVisible="{Binding IsFailed}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=RetryQueueItem}" CommandParameter="{Binding .}">Retry</Button>
                         <Button Padding="7,5" Width="30" Margin="0,0,4,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=MoveQueueItemUp}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Move up">↑</Button>
                         <Button Padding="7,5" Width="30" Margin="0,0,4,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=MoveQueueItemDown}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Move down">↓</Button>
                         <Button Padding="7,5" Width="30" Margin="0,0,6,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=DuplicateQueueItem}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Duplicate">⧉</Button>
