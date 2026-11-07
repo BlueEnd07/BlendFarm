@@ -12,6 +12,7 @@
     <SolidColorBrush x:Key="BlendFarmOnAccentBrush" Color="#FFFFFF" />
     <SolidColorBrush x:Key="BlendFarmErrorBrush" Color="#FF5066" />
     <SolidColorBrush x:Key="BlendFarmWarningBrush" Color="#D6B94A" />
+    <SolidColorBrush x:Key="BlendFarmValidationWarningBrush" Color="#F0B340" />
     <SolidColorBrush x:Key="BlendFarmSuccessBrush" Color="#12C979" />
     <SolidColorBrush x:Key="BlendFarmSuccessBackgroundBrush" Color="#182D26" />
     <SolidColorBrush x:Key="BlendFarmSuccessBorderBrush" Color="#245C45" />

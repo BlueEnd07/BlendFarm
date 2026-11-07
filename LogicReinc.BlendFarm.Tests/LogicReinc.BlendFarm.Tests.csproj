@@ -26,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\LogicReinc.BlendFarm\LogicReinc.BlendFarm.csproj" />
     <ProjectReference Include="..\LogicReinc.BlendFarm.Client\LogicReinc.BlendFarm.Client.csproj" />
     <ProjectReference Include="..\LogicReinc.BlendFarm.Server\LogicReinc.BlendFarm.Server.csproj" />
     <ProjectReference Include="..\LogicReinc.BlendFarm.Shared\LogicReinc.BlendFarm.Shared.csproj" />

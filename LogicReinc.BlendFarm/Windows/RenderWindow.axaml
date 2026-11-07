@@ -297,12 +297,17 @@
             </ListBox.ItemTemplate>
           </ListBox>
           <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{StaticResource BlendFarmSoftBorderBrush}" ResizeDirection="Rows"/>
-          <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,8,0,8">
-            <TextBlock Grid.Column="0" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" FontWeight="Bold">ACTIVITY LOG</TextBlock>
-            <Button Grid.Column="1" Padding="8,3" FontSize="11" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Command="{Binding ClearActivityLog}">Clear Log</Button>
-          </Grid>
+          <WrapPanel Grid.Row="3" Margin="0,6,0,2">
+            <TextBlock VerticalAlignment="Center" Margin="0,0,10,4" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" FontWeight="Bold">ACTIVITY LOG</TextBlock>
+            <ComboBox x:Name="logLevelFilter" MinWidth="92" Height="26" MinHeight="26" Padding="6,0" Margin="0,0,6,4" FontSize="11" VerticalContentAlignment="Center" ToolTip.Tip="Show only entries of this level"/>
+            <ComboBox x:Name="logNodeFilter" MinWidth="104" MaxWidth="160" Height="26" MinHeight="26" Padding="6,0" Margin="0,0,6,4" FontSize="11" VerticalContentAlignment="Center" ToolTip.Tip="Show only entries of one node"/>
+            <TextBox x:Name="logSearch" Width="130" Height="26" MinHeight="26" Padding="6,0" Margin="0,0,6,4" FontSize="11" VerticalContentAlignment="Center" Watermark="Search log…"/>
+            <Button x:Name="logCopyButton" Height="26" Margin="0,0,6,4" Padding="8,0" FontSize="11" VerticalContentAlignment="Center" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Click="CopyLogClicked" ToolTip.Tip="Copy the entries shown below to the clipboard">Copy</Button>
+            <Button Height="26" Margin="0,0,6,4" Padding="8,0" FontSize="11" VerticalContentAlignment="Center" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Click="ExportLogClicked" ToolTip.Tip="Save the entries shown below to a .txt or .log file">Export…</Button>
+            <Button Height="26" Margin="0,0,0,4" Padding="8,0" FontSize="11" VerticalContentAlignment="Center" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Command="{Binding ClearActivityLog}">Clear Log</Button>
+          </WrapPanel>
           <Border Grid.Row="4" Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="8">
-            <ListBox x:Name="activityLogList" Items="{Binding ActivityLog}" Background="Transparent" BorderBrush="Transparent" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
+            <ListBox x:Name="activityLogList" Background="Transparent" BorderBrush="Transparent" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
               <ListBox.ItemTemplate>
                 <DataTemplate>
                   <Grid ColumnDefinitions="20,62,*" Margin="0,0,0,5">
@@ -327,6 +332,9 @@
             <TextBlock Foreground="{StaticResource BlendFarmTextBrush}" FontSize="20" FontWeight="Bold">Render Control</TextBlock>
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+            <Button Padding="10,6" Margin="0,0,6,0" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Background="{StaticResource BlendFarmButtonBrush}" Click="ShowShortcutsClicked">
+                  Shortcuts
+                </Button>
             <Button Padding="10,6" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Background="{StaticResource BlendFarmButtonBrush}" Command="{Binding Help}">
                   Help
                 </Button>
@@ -384,6 +392,15 @@
             </StackPanel>
             <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
               <StackPanel>
+                <!--SECTION: Presets-->
+                <Border x:Name="presetBar" Background="{StaticResource BlendFarmPanelBrush}" CornerRadius="6" Padding="12,10" Margin="0,0,0,10">
+                  <Grid ColumnDefinitions="64,*,Auto,Auto">
+                    <TextBlock Grid.Column="0" VerticalAlignment="Center" Foreground="{StaticResource BlendFarmLabelBrush}" ToolTip.Tip="Apply a saved bundle of render settings">Preset</TextBlock>
+                    <ComboBox Grid.Column="1" x:Name="presetSelect" Margin="0,0,8,0" PlaceholderText="Choose a preset…" HorizontalAlignment="Stretch"/>
+                    <Button Grid.Column="2" Margin="0,0,6,0" Padding="10,6" Click="SavePresetClicked" ToolTip.Tip="Save the current settings as a preset">Save</Button>
+                    <Button Grid.Column="3" x:Name="presetDelete" Padding="10,6" IsEnabled="False" Click="DeletePresetClicked" ToolTip.Tip="Delete the selected preset (built-in presets can't be deleted)">Delete</Button>
+                  </Grid>
+                </Border>
                 <!--SECTION: Output &amp; Resolution-->
                 <Expander x:Name="sectionOutput" Header="Output &amp; Resolution" IsExpanded="True" Margin="0,0,0,10">
                   <Border Background="{StaticResource BlendFarmPanelBrush}" CornerRadius="6" Padding="12">
@@ -422,9 +439,15 @@
                           <ComboBox Grid.Column="1" x:Name="selectOutputType" Items="{Binding ImageFormats}" SelectedItem="{Binding CurrentProject.RenderFormat}" FontSize="15"/>
                         </Grid>
                       </Grid>
+                      <Grid ColumnDefinitions="88,*" Margin="0,-4,0,8" IsVisible="{Binding #animationFormatWarning.IsVisible}">
+                        <TextBlock Grid.Column="1" x:Name="animationFormatWarning" IsVisible="False" Foreground="{StaticResource BlendFarmValidationWarningBrush}" FontSize="12" TextWrapping="Wrap"/>
+                      </Grid>
                       <Grid ColumnDefinitions="88,*" Margin="0,0,0,8">
                         <TextBlock Grid.Column="0" Foreground="{StaticResource BlendFarmLabelBrush}" TextAlignment="Left" Margin="0,8,8,8" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame} (unpadded). Use # for the zero-padded frame number.">Output Name</TextBlock>
                         <TextBox Grid.Column="1" x:Name="inputOutputTemplate" Watermark="{}{scene}_###" Text="{Binding CurrentProject.OutputTemplate}" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame} (unpadded). Use # for the zero-padded frame number."/>
+                      </Grid>
+                      <Grid ColumnDefinitions="88,*" Margin="0,-4,0,8" IsVisible="{Binding #outputNameWarning.IsVisible}">
+                        <TextBlock Grid.Column="1" x:Name="outputNameWarning" IsVisible="False" Foreground="{StaticResource BlendFarmValidationWarningBrush}" FontSize="12" TextWrapping="Wrap"/>
                       </Grid>
                       <Grid ColumnDefinitions="88,*" Margin="0,0,0,8">
                         <StackPanel Grid.Column="1">
@@ -530,10 +553,14 @@
                   </Border>
                 </Expander>
                 <!--SECTION: Notifications-->
-                <Expander x:Name="sectionNotifications" Header="Notifications" IsExpanded="True" Margin="0,0,0,10">
+                <Expander x:Name="sectionNotifications" Header="Notifications &amp; System" IsExpanded="True" Margin="0,0,0,10">
                   <Border Background="{StaticResource BlendFarmPanelBrush}" CornerRadius="6" Padding="12">
                     <StackPanel Spacing="8">
                       <CheckBox IsChecked="{Binding NotificationsEnabled}">Show toast on completion</CheckBox>
+                      <CheckBox IsChecked="{Binding DesktopNotificationEnabled}" ToolTip.Tip="Show a Windows notification when a render or queue item finishes or fails">Desktop notification</CheckBox>
+                      <CheckBox IsChecked="{Binding PlayCompletionSound}" ToolTip.Tip="Play a system sound on success or failure">Play sound</CheckBox>
+                      <CheckBox IsChecked="{Binding NotifyOnlyWhenUnfocused}" Margin="22,0,0,0" ToolTip.Tip="Skip the desktop notification and sound while BlendFarm is the active window">Only when this window is not focused</CheckBox>
+                      <CheckBox IsChecked="{Binding PreventSleepWhileRendering}" ToolTip.Tip="Keeps the PC awake while anything renders (still, animation, queue or live render). Windows only.">Prevent sleep while rendering</CheckBox>
                       <CheckBox IsChecked="{Binding WebhookEnabled}">Send webhook</CheckBox>
                       <Grid ColumnDefinitions="88,*">
                         <TextBlock VerticalAlignment="Center">Webhook URL</TextBlock>

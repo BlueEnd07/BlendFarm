@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace LogicReinc.BlendFarm.Windows
 {
@@ -68,6 +69,14 @@ namespace LogicReinc.BlendFarm.Windows
         {
             e.Handled = true;
             if (!CanCloseProjects || sender is not Control control || control.DataContext is not OpenBlenderProject project)
+                return;
+            await CloseProject(project);
+        }
+
+        // Shared by the tab's close button and the Ctrl+W shortcut.
+        private async Task CloseProject(OpenBlenderProject project)
+        {
+            if (!CanCloseProjects || project == null)
                 return;
             int index = Projects.IndexOf(project);
             if (index < 0 || project.IsRendering) return;
