@@ -1,6 +1,6 @@
 ﻿<Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Name="BlendFarm by LogicReinc"
+             x:Name="BlendFarm"
              x:Class="LogicReinc.BlendFarm.App">
     <Application.Resources>
         <SolidColorBrush x:Key="BlendFarmWindowBrush" Color="#262626"/>

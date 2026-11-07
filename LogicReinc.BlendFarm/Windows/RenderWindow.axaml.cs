@@ -2240,15 +2240,11 @@ namespace LogicReinc.BlendFarm.Windows
         //Buttons Top
         public void Github()
         {
-            OpenUrl("https://github.com/LogicReinc/LogicReinc.BlendFarm");
-        }
-        public void Patreon()
-        {
-            OpenUrl("https://www.patreon.com/LogicReinc");
+            OpenUrl("https://github.com/BlueEnd07/BlendFarm");
         }
         public void Help()
         {
-            OpenUrl("https://www.youtube.com/watch?v=EXdwD5t53wc");
+            OpenUrl("https://github.com/BlueEnd07/BlendFarm#readme");
         }
         private static void OpenUrl(string url)
         {
