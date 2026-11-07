@@ -21,5 +21,41 @@ namespace LogicReinc.BlendFarm
 
         /// <summary>User-defined render settings presets (the built-in ones are not stored).</summary>
         public List<RenderPreset> UserPresets { get; set; } = new List<RenderPreset>();
+
+        /// <summary>
+        /// Names of nodes switched off with "Use for rendering". Stored apart from <see cref="PastClients"/> so toggling it
+        /// never turns the built-in Local or a discovered node into a saved client (which changes how it is recreated).
+        /// </summary>
+        public HashSet<string> DisabledNodes { get; set; } = new HashSet<string>();
+
+        /// <summary>Last output folder used per blend file, so "Open output folder" works after a restart.</summary>
+        public Dictionary<string, string> LastOutputFolders { get; set; } = new Dictionary<string, string>();
+
+        /// <summary>True unless the node was disabled (also honours the legacy <c>HistoryClient.IsEnabled</c> flag).</summary>
+        public bool IsNodeEnabled(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return true;
+            DisabledNodes ??= new HashSet<string>();
+            if (DisabledNodes.Contains(name)) return false;
+            return !(PastClients != null && PastClients.TryGetValue(name, out var legacy) && legacy != null && !legacy.IsEnabled);
+        }
+
+        public void SetNodeEnabled(string name, bool enabled)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            DisabledNodes ??= new HashSet<string>();
+            if (enabled) DisabledNodes.Remove(name); else DisabledNodes.Add(name);
+            //Migrate away from the legacy per-client flag
+            if (PastClients != null && PastClients.TryGetValue(name, out var legacy) && legacy != null)
+                legacy.IsEnabled = true;
+        }
+
+        public void RenameNodeFlags(string oldName, string newName)
+        {
+            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName) return;
+            bool enabled = IsNodeEnabled(oldName);
+            SetNodeEnabled(oldName, true);
+            SetNodeEnabled(newName, enabled);
+        }
     }
 }

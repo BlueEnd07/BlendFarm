@@ -97,14 +97,24 @@ namespace LogicReinc.BlendFarm.Windows
         private string GetOutputFolder()
         {
             if (CurrentProject == null) return null;
-            return _projectOutputFolders.TryGetValue(CurrentProject.BlendFile, out string folder)
-                && Directory.Exists(folder) ? folder : null;
+            //The in-memory value wins, the persisted one covers the first look after a restart
+            if (_projectOutputFolders.TryGetValue(CurrentProject.BlendFile, out string folder) && Directory.Exists(folder))
+                return folder;
+            var saved = BlendFarmSettings.Instance.LastOutputFolders;
+            return saved != null && saved.TryGetValue(CurrentProject.BlendFile, out folder) && Directory.Exists(folder) ? folder : null;
         }
 
         private void RememberOutputFolder(OpenBlenderProject project, string folder)
         {
             if (project == null || string.IsNullOrEmpty(folder)) return;
             _projectOutputFolders[project.BlendFile] = folder;
+            var settings = BlendFarmSettings.Instance;
+            settings.LastOutputFolders ??= new Dictionary<string, string>();
+            if (!settings.LastOutputFolders.TryGetValue(project.BlendFile, out string stored) || stored != folder)
+            {
+                settings.LastOutputFolders[project.BlendFile] = folder;
+                settings.TrySave();
+            }
             _toastFolder = folder;
             UpdatePresentationState();
         }

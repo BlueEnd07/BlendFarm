@@ -16,10 +16,10 @@ namespace LogicReinc.BlendFarm.Windows
             Height = 245;
             CanResize = false;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Background = new SolidColorBrush(Color.Parse("#262626"));
+            Background = ThemeBrushes.Window;
             var day = new ComboBox { Items = new[] { "Today", "Tomorrow" }, SelectedIndex = 0 };
             var time = new TextBox { Text = DateTime.Now.AddMinutes(5).ToString("HH:mm"), Watermark = "HH:mm" };
-            var error = new TextBlock { Foreground = Brushes.OrangeRed, TextWrapping = TextWrapping.Wrap };
+            var error = new TextBlock { Foreground = ThemeBrushes.Error, TextWrapping = TextWrapping.Wrap };
             var start = new Button { Content = "Schedule", HorizontalAlignment = HorizontalAlignment.Right };
             start.Click += (_, __) =>
             {
