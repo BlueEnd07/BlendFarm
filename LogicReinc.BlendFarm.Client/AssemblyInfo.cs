@@ -18,7 +18,7 @@ using System.Runtime.InteropServices;
 [assembly: Guid("274bf838-c9be-41e7-a14c-75c8575f1f61")]
 
 
-[assembly: AssemblyVersion("2.0.0.0")]
-[assembly: AssemblyFileVersion("2.0.0.0")] 
+[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyFileVersion("2.1.0.0")] 
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("LogicReinc.BlendFarm.Tests")]

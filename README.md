@@ -12,7 +12,11 @@ BlendFarm is a network render farm for Blender. Use the spare computers on your 
 - **Manages Blender for you.** Choose a Blender version and every node downloads it automatically. You can also use your own custom Blender build.
 - **Finds nodes on its own.** Render nodes on the same network appear in the client automatically. If they don't, add them by IP address.
 - **Live preview.** See the image come together as tiles finish, and re-render quickly while you tweak the scene.
-- **Render queue.** Line up several jobs and let them run one after another.
+- **Render queue.** Line up several jobs and let them run one after another. Pause, resume, schedule a start time, edit queued jobs and retry failed ones.
+- **Animation tools.** Render every Nth frame or a frame list like `1-50, 75, 100-120`. See which frames failed and re-render only those. Optionally encode an MP4 with ffmpeg when the animation is done.
+- **Preview and history.** Zoom and pan the result, compare before/after with a slider, and browse past renders with thumbnails.
+- **Comfort features.** Drag a `.blend` onto the window, keyboard shortcuts (F1 lists them), presets, a filterable activity log, desktop notifications, and the PC stays awake while rendering.
+- **Node control.** Turn a node off without removing it, act on several nodes at once, and nodes reconnect automatically after a dropout, with a plain reason when they can't connect.
 - **Portable, no admin needed.** Runs from any folder without installing. Settings and Blender downloads live next to the app (or in `%LOCALAPPDATA%\BlendFarm` if that folder is read-only).
 
 ## How it works
@@ -131,7 +135,7 @@ dotnet publish LogicReinc.BlendFarm.Server -c Release -r win-x64 -p:PublishSingl
 Or build all the release zips (portable Windows zips and Linux zips) into `Deploy\Release` on Windows:
 
 ```powershell
-.\build-release.ps1 -Version 2.0.0
+.\build-release.ps1 -Version 2.1.0
 ```
 
 ### Project layout
