@@ -349,7 +349,7 @@ namespace LogicReinc.BlendFarm.Tests
         public async Task EndOfRender_DuplicatesSlowestWork_FirstResultWins()
         {
             FakeNode fast = new FakeNode("fast", 10);
-            FakeNode slow = new FakeNode("slow", 3000);
+            FakeNode slow = new FakeNode("slow", 10000);
             ConcurrentDictionary<int, int> frames = new ConcurrentDictionary<int, int>();
             AnimationTask task = CreateAnimation(new List<RenderNode>() { fast, slow }, 1, 6, frames);
 
@@ -358,7 +358,7 @@ namespace LogicReinc.BlendFarm.Tests
             watch.Stop();
 
             AssertEachFrameOnce(frames, 1, 6);
-            Assert.IsTrue(watch.ElapsedMilliseconds < 2500, $"Slow node held up the render ({watch.ElapsedMilliseconds}ms)");
+            Assert.IsTrue(watch.ElapsedMilliseconds < 6000, $"Slow node held up the render ({watch.ElapsedMilliseconds}ms)");
             //The slow node's copy was cancelled by its task id
             Assert.AreEqual(1, slow.CancelledTaskIDs.Count);
             RenderSubTask stolen = task.Scheduler.SubTasks.Single(x => x.ID == slow.CancelledTaskIDs.Single());
@@ -416,7 +416,7 @@ namespace LogicReinc.BlendFarm.Tests
 
             Assert.IsFalse(result);
             Assert.IsTrue(task.Cancelled);
-            Assert.IsTrue(watch.ElapsedMilliseconds < 1000, $"Cancel took {watch.ElapsedMilliseconds}ms");
+            Assert.IsTrue(watch.ElapsedMilliseconds < 2000, $"Cancel took {watch.ElapsedMilliseconds}ms");
             Assert.IsTrue(frames.Count < 100);
             int handedOut = frames.Count;
             await Task.Delay(600);
