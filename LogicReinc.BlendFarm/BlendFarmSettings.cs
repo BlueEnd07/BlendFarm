@@ -52,6 +52,18 @@ namespace LogicReinc.BlendFarm
         public bool Option_ConnectLocal { get; set; } = true;
         public bool Option_ImportSettings { get; set; } = true;
 
+        /// <summary>
+        /// Render-completion notification preferences
+        /// </summary>
+        public bool NotificationsEnabled { get; set; } = true;
+        public bool WebhookEnabled { get; set; } = false;
+        public string WebhookUrl { get; set; } = "";
+
+        /// <summary>
+        /// Persisted render queue (only items that were still queued when saved)
+        /// </summary>
+        public List<QueueItemDTO> RenderQueue { get; set; } = new List<QueueItemDTO>();
+
 
         public void ApplyProjectSettings(string fileName, UIProjectSettings settings)
         {
@@ -82,17 +94,51 @@ namespace LogicReinc.BlendFarm
             }
         }
 
+        private static readonly object _saveLock = new object();
         public void Save()
         {
-            File.WriteAllText(SystemInfo.RelativeToApplicationDirectory(FILE_NAME), JsonSerializer.Serialize(this));
+            string path = AppPaths.Resolve(FILE_NAME);
+            //Write to a temp file first so an interrupted save can't leave a corrupt settings file
+            lock (_saveLock)
+            {
+                //Serialize inside the lock so concurrent saves can't interleave a half-updated snapshot
+                string json = JsonSerializer.Serialize(this);
+                File.WriteAllText(path + ".tmp", json);
+                File.Move(path + ".tmp", path, true);
+            }
+        }
+        /// <summary>
+        /// Save that never throws (logs instead), for callers where a failed save must not break the UI
+        /// </summary>
+        public bool TrySave()
+        {
+            try
+            {
+                Save();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to save {FILE_NAME}: {ex.Message}");
+                return false;
+            }
         }
         public static BlendFarmSettings Load()
         {
-            string path = SystemInfo.RelativeToApplicationDirectory(FILE_NAME);
-            if (File.Exists(path))
-                return JsonSerializer.Deserialize<BlendFarmSettings>(File.ReadAllText(path));
-            else
+            string path = AppPaths.Resolve(FILE_NAME);
+            if (!File.Exists(path))
                 return new BlendFarmSettings();
+            try
+            {
+                return JsonSerializer.Deserialize<BlendFarmSettings>(File.ReadAllText(path)) ?? new BlendFarmSettings();
+            }
+            catch (Exception ex)
+            {
+                //Keep the broken file for recovery and start with defaults instead of failing to launch
+                Console.WriteLine($"Failed to load {FILE_NAME}, using defaults: {ex.Message}");
+                try { File.Copy(path, path + ".corrupt", true); } catch { }
+                return new BlendFarmSettings();
+            }
         }
         #endregion
 
@@ -104,6 +150,8 @@ namespace LogicReinc.BlendFarm
 
             public RenderType RenderType { get; set; } = RenderType.OPTIX_GPUONLY;
             public double Performance { get; set; }
+            //Auto benchmark score (pixels/ms); restored so work distribution survives restarts.
+            public decimal PerformanceScorePP { get; set; }
             public string Pass { get; set; }
         }
 

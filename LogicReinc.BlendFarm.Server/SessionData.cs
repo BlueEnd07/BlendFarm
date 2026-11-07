@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LogicReinc.BlendFarm.Shared;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Collections;
@@ -48,6 +49,33 @@ namespace LogicReinc.BlendFarm.Server
         public bool InUse { get; set; } = false;
 
         /// <summary>
+        /// Content hash of the blend cache file this session renders, null for the legacy per-session copy
+        /// </summary>
+        public string CacheHash { get; set; }
+
+        /// <summary>
+        /// Point this session at a file in the blend cache
+        /// </summary>
+        public void UseCachedFile(string hash, long fileId)
+        {
+            string legacy = GetLegacyBlendFilePath();
+            CacheHash = hash;
+            IsNetworked = false;
+            UpdatedFile(fileId);
+            BlendCache.Touch(hash);
+            try { if (File.Exists(legacy)) File.Delete(legacy); } catch { }
+        }
+
+        /// <summary>
+        /// Cache hashes in use by any session, these are never evicted
+        /// </summary>
+        public static List<string> GetCacheHashesInUse()
+        {
+            lock (Sessions)
+                return Sessions.Values.Select(x => x.CacheHash).Where(x => x != null).Distinct().ToList();
+        }
+
+        /// <summary>
         /// Delete a session and associated blend file
         /// </summary>
         public void Delete()
@@ -57,7 +85,8 @@ namespace LogicReinc.BlendFarm.Server
                 if (Sessions.ContainsKey(SessionID))
                     Sessions.Remove(SessionID);
             }
-            string blendFile = GetBlendFilePath();
+            //Cached files are shared and kept, only the legacy per-session copy is removed
+            string blendFile = GetLegacyBlendFilePath();
             if (File.Exists(blendFile))
                 File.Delete(blendFile);
         }
@@ -67,6 +96,8 @@ namespace LogicReinc.BlendFarm.Server
         /// </summary>
         public static SessionData GetOrCreate(string sessionID)
         {
+            if (!SessionUtil.IsSafeId(sessionID))
+                throw new ArgumentException("Invalid SessionID");
             lock (Sessions)
             {
                 if (!Sessions.ContainsKey(sessionID))
@@ -148,6 +179,12 @@ namespace LogicReinc.BlendFarm.Server
         /// </summary>
         /// <returns></returns>
         public string GetBlendFilePath()
+        {
+            if (CacheHash != null)
+                return BlendCache.GetPath(CacheHash);
+            return GetLegacyBlendFilePath();
+        }
+        private string GetLegacyBlendFilePath()
         {
             return Path.Combine(SystemInfo.RelativeToApplicationDirectory(ServerSettings.Instance.BlenderFiles), SessionID) + ".blend";
         }

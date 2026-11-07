@@ -50,10 +50,15 @@ namespace LogicReinc.BlendFarm.Objects
         public string RenderFormat { get; set; } = "PNG";
 
         public bool UseWorkaround { get; set; } = false;
+        /// <summary>
+        /// Don't re-render animation frames whose output file already exists (resume an interrupted render)
+        /// </summary>
+        public bool SkipExistingFrames { get; set; } = false;
 
         public string Scene { get; set; } = "";
         public string Camera { get; set; } = "";
         public string AnimationFileFormat { get; set; } = "#.png";
+        public string OutputTemplate { get; set; } = "#";
         public int FrameStart { get; set; } = 0;
         public int FrameEnd { get; set; } = 60;
         public int FPS { get; set; } = 0;
@@ -78,8 +83,11 @@ namespace LogicReinc.BlendFarm.Objects
             }
             set
             {
-                _lastImage = value;
+                //Swap first, then dispose the replaced bitmap once the UI no longer shows it
+                Bitmap old = System.Threading.Interlocked.Exchange(ref _lastImage, value);
                 OnBitmapChanged?.Invoke(this, value);
+                if (old != null && !ReferenceEquals(old, value))
+                    Statics.DisposeReplacedBitmap(old);
             }
         }
 
@@ -152,6 +160,8 @@ namespace LogicReinc.BlendFarm.Objects
             UseWorkaround = settings?.UseWorkaround ?? false;
             FPS = settings?.FPS ?? 0;
             Samples = settings?.Samples ?? 32;
+            OutputTemplate = string.IsNullOrEmpty(settings?.OutputTemplate) ? "#" : settings.OutputTemplate;
+            SkipExistingFrames = settings?.SkipExistingFrames ?? false;
         }
         public void SaveAsDefault()
         {
@@ -166,7 +176,9 @@ namespace LogicReinc.BlendFarm.Objects
                 Denoiser = Denoiser,
                 UseWorkaround = UseWorkaround,
                 FPS = FPS,
-                Samples = Samples
+                Samples = Samples,
+                OutputTemplate = OutputTemplate,
+                SkipExistingFrames = SkipExistingFrames
             };
             BlendFarmSettings.Instance.Save();
         }
@@ -209,6 +221,8 @@ namespace LogicReinc.BlendFarm.Objects
             public int FPS { get; set; }
             public string Denoiser { get; set; }
             public bool UseWorkaround { get; set; }
+            public string OutputTemplate { get; set; }
+            public bool SkipExistingFrames { get; set; }
         }
 
     }

@@ -4,9 +4,9 @@ read version
 echo Building version $version
 
 
-dotnet publish LogicReinc.BlendFarm.Server -f net6.0 -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true -o Deploy/LogicReinc.BlendFarm.Server/_Build/win-x64
-dotnet publish LogicReinc.BlendFarm.Server -f net6.0 -c Release -r linux-x64 -p:PublishSingleFile=true --self-contained true -o Deploy/LogicReinc.BlendFarm.Server/_Build/linux-x64
-dotnet publish LogicReinc.BlendFarm.Server -f net6.0 -c Release -r osx-x64 -p:PublishSingleFile=true --self-contained true -o Deploy/LogicReinc.BlendFarm.Server/_Build/osx-x64
+dotnet publish LogicReinc.BlendFarm.Server -f net8.0 -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true -o Deploy/LogicReinc.BlendFarm.Server/_Build/win-x64
+dotnet publish LogicReinc.BlendFarm.Server -f net8.0 -c Release -r linux-x64 -p:PublishSingleFile=true --self-contained true -o Deploy/LogicReinc.BlendFarm.Server/_Build/linux-x64
+dotnet publish LogicReinc.BlendFarm.Server -f net8.0 -c Release -r osx-x64 -p:PublishSingleFile=true --self-contained true -o Deploy/LogicReinc.BlendFarm.Server/_Build/osx-x64
 
 
 #Preparing BlendFarm.Server

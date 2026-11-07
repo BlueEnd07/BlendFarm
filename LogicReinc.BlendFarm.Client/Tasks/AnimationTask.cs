@@ -19,6 +19,10 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
         public int StartFrame { get; set; }
         public int EndFrame { get; set; }
+        /// <summary>
+        /// Frames that are already rendered and should not be rendered again (resume)
+        /// </summary>
+        public HashSet<int> SkipFrames { get; set; } = new HashSet<int>();
 
         public event Action<RenderSubTask, SubTaskResult> OnFrameResult;
 
@@ -33,14 +37,15 @@ namespace LogicReinc.BlendFarm.Client.Tasks
             _exceptions = new List<Exception>();
 
             _finished = 0;
-            _framesTotal = EndFrame - StartFrame + 1;
+            _framesTotal = Enumerable.Range(StartFrame, Math.Max(0, EndFrame - StartFrame + 1)).Count(x => !SkipFrames.Contains(x));
         }
 
         protected override RenderSubTask[] GetTasks()
         {
             List<RenderSubTask> tasks = new List<RenderSubTask>();
             for (int i = StartFrame; i <= EndFrame; i++)
-                tasks.Add(new RenderSubTask(this, 0, 1, 0, 1, i));
+                if (!SkipFrames.Contains(i))
+                    tasks.Add(new RenderSubTask(this, 0, 1, 0, 1, i));
             return tasks.ToArray();
         }
 
@@ -52,12 +57,20 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
         protected override void HandleResult(RenderSubTask task, SubTaskResult result)
         {
-            lock (_lock)
-                _finished++;
-
-            ChangeProgress((double)_finished / _framesTotal);
-
+            //Invoke first, if handling (e.g. saving) fails the frame is retried and shouldn't count yet
             OnFrameResult?.Invoke(task, result);
+
+            int finished;
+            lock (_lock)
+                finished = ++_finished;
+
+            ChangeProgress((double)finished / _framesTotal);
+        }
+
+        protected override void HandleException(RenderNode node, RenderSubTask task, Exception ex)
+        {
+            lock (_lock)
+                _exceptions.Add(new Exception($"Frame {task?.Frame} on {node?.Name}: {ex.Message}", ex));
         }
     }
 }

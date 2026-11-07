@@ -34,9 +34,25 @@ namespace LogicReinc.BlendFarm.Server
         public string BlenderFiles = "BlenderFiles";
 
         /// <summary>
+        /// Synced .blend files kept by content, survives restarts so unchanged files never upload again
+        /// </summary>
+        public string BlendCache { get; set; } = "BlendCache";
+        /// <summary>
+        /// Size limit of the blend cache in GB, least recently used files are removed first. 0 = no limit
+        /// </summary>
+        public double BlendCacheGB { get; set; } = 30;
+
+        /// <summary>
         /// Prevents software from replacing the .py if it changed
         /// </summary>
         public bool BypassScriptUpdate { get; set; } = false;
+
+        /// <summary>
+        /// Kill Blender if it prints nothing for this many minutes while rendering (hung process),
+        /// so the client can retry the frame elsewhere. 0 disables the watchdog.
+        /// Keep it generous, heavy scenes can be silent for a while during loading/BVH/shader compiles.
+        /// </summary>
+        public int WatchdogMinutes { get; set; } = 30;
 
 
         /// <summary>
@@ -57,17 +73,34 @@ namespace LogicReinc.BlendFarm.Server
             }
         }
 
+        private static readonly object _saveLock = new object();
         public void Save()
         {
-            File.WriteAllText(SystemInfo.RelativeToApplicationDirectory(SETTINGS_PATH), JsonSerializer.Serialize(this));
+            string path = SystemInfo.RelativeToApplicationDirectory(SETTINGS_PATH);
+            string json = JsonSerializer.Serialize(this);
+            //Write to a temp file first so an interrupted save can't leave a corrupt settings file
+            lock (_saveLock)
+            {
+                File.WriteAllText(path + ".tmp", json);
+                File.Move(path + ".tmp", path, true);
+            }
         }
         public static ServerSettings Load()
         {
             string path = SystemInfo.RelativeToApplicationDirectory(SETTINGS_PATH);
-            if (File.Exists(path))
-                return JsonSerializer.Deserialize<ServerSettings>(File.ReadAllText(path));
-            else
+            if (!File.Exists(path))
                 return new ServerSettings();
+            try
+            {
+                return JsonSerializer.Deserialize<ServerSettings>(File.ReadAllText(path)) ?? new ServerSettings();
+            }
+            catch (Exception ex)
+            {
+                //Keep the broken file for recovery and start with defaults instead of failing to launch
+                Console.WriteLine($"Failed to load {SETTINGS_PATH}, using defaults: {ex.Message}");
+                try { File.Copy(path, path + ".corrupt", true); } catch { }
+                return new ServerSettings();
+            }
         }
         #endregion
     }

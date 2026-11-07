@@ -1,10 +1,11 @@
 ﻿using LogicReinc.BlendFarm.Client.Tasks;
 using LogicReinc.BlendFarm.Shared;
 using LogicReinc.BlendFarm.Shared.Communication.RenderNode;
+using LogicReinc.BlendFarm.Shared.Sync;
+using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -36,6 +37,23 @@ namespace LogicReinc.BlendFarm.Client
 
         public bool Networked { get; set; }
 
+        /// <summary>
+        /// SHA-256 of LocalBlendFile, and the FileID it was computed for
+        /// </summary>
+        public string ContentHash { get; set; }
+        public long ContentHashFileID { get; set; }
+
+        /// <summary>
+        /// Stable id of the project across sessions and restarts, nodes use it to find the previous version as delta base
+        /// </summary>
+        public string ProjectKey { get; }
+
+        /// <summary>
+        /// Held while the local copy is updated or a sync hashes, plans and sends it,
+        /// so the file watcher can't replace the snapshot halfway through a sync
+        /// </summary>
+        public SemaphoreSlim SyncLock { get; } = new SemaphoreSlim(1, 1);
+
         public BlendFarmFileSession(string file, string localDir, string sessionID = null)
         {
             BlendFile = file;
@@ -43,6 +61,7 @@ namespace LogicReinc.BlendFarm.Client
                 SessionID = sessionID;
             LocalBlendFile = Path.GetFullPath(Path.Combine(localDir, SessionID + ".blend"));
             FileID = new FileInfo(LocalBlendFile).LastWriteTime.Ticks;
+            ProjectKey = Shared.Sync.ContentHash.ComputeString(Environment.MachineName + "|" + Path.GetFullPath(file).ToLowerInvariant());
         }
     }
 
@@ -103,7 +122,8 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// If currently syncing
         /// </summary>
-        public bool Syncing { get; private set; } = false;
+        public bool Syncing => Volatile.Read(ref _syncCount) > 0;
+        private int _syncCount = 0;
 
         /// <summary>
         /// If currently rendering
@@ -309,11 +329,10 @@ namespace LogicReinc.BlendFarm.Client
                                 if (isNetworking != IsNetworked)
                                     session.FileID = -1;
                                 isNetworking = IsNetworked;
-                                if (!Syncing && (CurrentTask == null || AlwaysUpdateFile))
-                                {
-                                    UpdateFileVersion(session.BlendFile, isNetworking);
+                                //Skipped while a sync holds the session, retried next interval
+                                if (!Syncing && (CurrentTask == null || AlwaysUpdateFile)
+                                    && TryUpdateFileVersion(session, isNetworking, out _))
                                     OnFileChanged?.Invoke(this);
-                                }
                             }
                         }
                         catch(Exception ex)
@@ -334,28 +353,96 @@ namespace LogicReinc.BlendFarm.Client
         }
 
         /// <summary>
-        /// Updates the file version and copy it to a local directory
+        /// Blender's "Compress" save option writes zstd (magic 28 B5 2F FD)
+        /// </summary>
+        private static bool IsZstdCompressed(string path)
+        {
+            try
+            {
+                byte[] magic = new byte[4];
+                using (FileStream str = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    if (str.Read(magic, 0, 4) != 4)
+                        return false;
+                return magic[0] == 0x28 && magic[1] == 0xB5 && magic[2] == 0x2F && magic[3] == 0xFD;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Updates the file version and copy it to a local directory.
+        /// While a sync of this session is in progress, nothing is copied and the version being synced is returned.
         /// </summary>
         public long UpdateFileVersion(BlendFarmFileSession session, bool shared)
         {
+            TryUpdateFileVersion(session, shared, out long id);
+            return id;
+        }
+        private bool TryUpdateFileVersion(BlendFarmFileSession session, bool shared, out long id)
+        {
+            if (!session.SyncLock.Wait(0))
+            {
+                id = session.FileID;
+                return false;
+            }
+            try
+            {
+                id = UpdateFileVersionLocked(session, shared);
+                return true;
+            }
+            finally
+            {
+                session.SyncLock.Release();
+            }
+        }
+        /// <summary>
+        /// Copies the file to a temporary file first, then renames it over the destination,
+        /// so the destination is never a half written copy
+        /// </summary>
+        private static void CopyAtomic(string source, string destination)
+        {
+            string temp = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.Copy(source, temp, true);
+                if (File.Exists(destination))
+                    File.Replace(temp, destination, null);
+                else
+                    File.Move(temp, destination);
+            }
+            finally
+            {
+                if (File.Exists(temp))
+                    File.Delete(temp);
+            }
+        }
+        /// <summary>
+        /// UpdateFileVersion, caller must hold session.SyncLock
+        /// </summary>
+        private long UpdateFileVersionLocked(BlendFarmFileSession session, bool shared)
+        {
             long oldID = session.FileID;
             FileInfo info = new FileInfo(session.BlendFile);
-            session.FileID = info.LastWriteTime.Ticks;
+            long newID = info.LastWriteTime.Ticks;
             session.Networked = shared;
 
             string sharedPath = SessionUtil.GetSessionNetworkPath(info.FullName, session.SessionID);
-            if (oldID != session.FileID)
+            if (oldID != newID)
             {
                 if (!shared)
-                    File.Copy(session.BlendFile, session.LocalBlendFile, true);
+                    CopyAtomic(session.BlendFile, session.LocalBlendFile);
                 else
-                    File.Copy(session.BlendFile, sharedPath, true);
+                    CopyAtomic(session.BlendFile, sharedPath);
+                //Only take the new version once the copy succeeded, so a failed copy is retried
+                session.FileID = newID;
                 foreach (RenderNode node in Nodes)
                     node.UpdateSyncedStatus(session.SessionID, false);
             }
             else if (shared && !File.Exists(sharedPath))
             {
-                File.Copy(session.BlendFile, sharedPath, true);
+                CopyAtomic(session.BlendFile, sharedPath);
                 foreach (RenderNode node in Nodes)
                     node.UpdateSyncedStatus(session.SessionID, false);
             }
@@ -457,13 +544,12 @@ namespace LogicReinc.BlendFarm.Client
         /// </summary>
         public async Task Sync(string localPath, string windowsPath, string linuxPath, string macOSPath)
         {
+            BlendFarmFileSession session = GetOrCreateSession(localPath);
+            await session.SyncLock.WaitAsync();
+            Interlocked.Increment(ref _syncCount);
             try
             {
-                BlendFarmFileSession session = GetOrCreateSession(localPath);
-
-                UpdateFileVersion(session, true);
-
-                Syncing = true;
+                UpdateFileVersionLocked(session, true);
 
                 long id = session.FileID;
 
@@ -487,7 +573,8 @@ namespace LogicReinc.BlendFarm.Client
             }
             finally
             {
-                Syncing = false;
+                Interlocked.Decrement(ref _syncCount);
+                session.SyncLock.Release();
             }
         }
         /// <summary>
@@ -495,68 +582,55 @@ namespace LogicReinc.BlendFarm.Client
         /// </summary>
         public async Task Sync(string file, bool compress = false)
         {
+            BlendFarmFileSession session = GetOrCreateSession(file);
+            //Held until every node is done, the watcher can't replace the snapshot while it is hashed, planned or sent
+            await session.SyncLock.WaitAsync();
+            Interlocked.Increment(ref _syncCount);
             try
             {
-                BlendFarmFileSession session = GetOrCreateSession(file);
+                UpdateFileVersionLocked(session, false);
 
-                UpdateFileVersion(session, false);
-
-                Syncing = true;
-                //Optimize
                 long id = session.FileID;
 
-                string toSend = file;
+                //Send the snapshot copy, not the live file the user may be saving.
+                //Hash it once per version: nodes that already have this content skip the transfer entirely
+                string toSend = session.LocalBlendFile;
+                if (session.ContentHash == null || session.ContentHashFileID != id)
+                {
+                    Nodes.ToList().ForEach(x => x.UpdateActivity("Checking file.."));
+                    session.ContentHash = await Task.Run(() => ContentHash.ComputeFile(toSend));
+                    session.ContentHashFileID = id;
+                }
+                //Compressing a .blend Blender already compressed only costs time
+                bool useGZip = compress && !IsZstdCompressed(toSend);
 
-                if(compress)
-                    using (FileStream mem = new FileStream("compressed.zip", FileMode.Create))
-                    {
-                        byte[] buffer = new byte[4096];
-
-                        await Task.Run(() =>
-                        {
-                            Nodes.ToList().ForEach(x => x.UpdateActivity("Compressing.."));
-
-                            using (FileStream str = new FileStream(session.BlendFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-                            using (Stream zip = new GZipStream(mem, CompressionMode.Compress, true))
-                            {
-                                int read = 0;
-                                while ((read = str.Read(buffer, 0, buffer.Length)) > 0)
-                                    zip.Write(buffer, 0, buffer.Length);
-                            }
-
-                            Nodes.ToList().ForEach(x => x.UpdateActivity(""));
-                        });
-                        toSend = "compressed.zip";
-                    }
+                //Shared by all nodes, nodes with the same base version reuse one delta computation
+                DeltaPlanner planner = new DeltaPlanner(toSend);
                 await Task.WhenAll(Nodes.ToList().Select(async node =>
                 {
-                    SyncResponse resp = null;
                     try
                     {
-                        using(FileStream str = new FileStream(toSend, FileMode.Open, FileAccess.Read, FileShare.Read))
-                            resp = await node.SyncFile(session.SessionID, id, str, (compress) ? Compression.GZip : Compression.Raw);
+                        await node.SyncFileDelta(session.SessionID, id, toSend, session.ContentHash, session.ProjectKey, useGZip, planner);
                     }
                     catch (Exception ex)
                     {
                         node.UpdateException(ex.Message);
                         return;
                     }
-                    if (resp == null)
-                        node.LastStatus = $"Sync Failed: No version..";
-                    else
-                        node.LastStatus = $"Ready";
+                    node.LastStatus = $"Ready";
                 }).ToArray());
             }
             finally
             {
-                Syncing = false;
+                Interlocked.Decrement(ref _syncCount);
+                session.SyncLock.Release();
             }
         }
 
         /// <summary>
         /// Creates a RenderTask for the currently connected nodes, not yet executed
         /// </summary>
-        public RenderTask GetImageTask(string file, RenderManagerSettings settings = null, Action<RenderSubTask, Image> onResultUpdated = null, Action<RenderSubTask, Image> onTileReceived = null)
+        public RenderTask GetImageTask(string file, RenderManagerSettings settings = null, Action<RenderSubTask, SKBitmap> onResultUpdated = null, Action<RenderSubTask, SKBitmap> onTileReceived = null)
         {
             BlendFarmFileSession session = GetOrCreateSession(file);
             CurrentTask = RenderTask.GetImageRenderTask(Nodes.ToList(), session.SessionID, Version, session.FileID, settings);
@@ -569,10 +643,13 @@ namespace LogicReinc.BlendFarm.Client
             return CurrentTask;
         }
 
-        public RenderTask GetAnimationTask(string file, int start, int end,RenderManagerSettings settings = null, Action<RenderSubTask, SubTaskResult> onResult = null)
+        public RenderTask GetAnimationTask(string file, int start, int end,RenderManagerSettings settings = null, Action<RenderSubTask, SubTaskResult> onResult = null, IEnumerable<int> skipFrames = null)
         {
             BlendFarmFileSession session = GetOrCreateSession(file);
-            CurrentTask = new AnimationTask(Nodes.ToList(), session.SessionID, Version, session.FileID, start, end, settings);
+            CurrentTask = new AnimationTask(Nodes.ToList(), session.SessionID, Version, session.FileID, start, end, settings)
+            {
+                SkipFrames = new HashSet<int>(skipFrames ?? Enumerable.Empty<int>())
+            };
 
             if (onResult != null)
                 ((AnimationTask)CurrentTask).OnFrameResult += onResult;
@@ -595,7 +672,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Render with provided settings on connected prepared nodes
         /// </summary>
-        public async Task<Image> Render(string file, RenderManagerSettings settings = null, Action<RenderSubTask, Image> onResultUpdated = null, Action<RenderSubTask, Image> onTileReceived = null)
+        public async Task<SKBitmap> Render(string file, RenderManagerSettings settings = null, Action<RenderSubTask, SKBitmap> onResultUpdated = null, Action<RenderSubTask, SKBitmap> onTileReceived = null)
         {
             if (CurrentTask != null)
                 throw new InvalidOperationException("Already rendering..");
@@ -605,7 +682,7 @@ namespace LogicReinc.BlendFarm.Client
 
                 await CurrentTask.Render();
 
-                Image bitmap = ((CurrentTask is IImageTask) ? (IImageTask)CurrentTask : null)?.FinalImage;
+                SKBitmap bitmap = ((CurrentTask is IImageTask) ? (IImageTask)CurrentTask : null)?.FinalImage;
 
                 return bitmap;
             }

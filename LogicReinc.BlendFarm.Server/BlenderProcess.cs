@@ -34,6 +34,12 @@ namespace LogicReinc.BlendFarm.Server
         public bool IsContinueing { get; private set; }
 
         /// <summary>
+        /// Set once Cancel is called, a cancelled process is never (re)started or continued
+        /// </summary>
+        public bool IsCancelled => _cancelled;
+        private volatile bool _cancelled = false;
+
+        /// <summary>
         /// Called when a task is complete with ID
         /// </summary>
         public event Action<string> OnBlenderCompleteTask;
@@ -50,6 +56,12 @@ namespace LogicReinc.BlendFarm.Server
 
         public int ContinueCount { get; private set; }
 
+        /// <summary>
+        /// Last time Blender printed anything, used by the watchdog
+        /// </summary>
+        public DateTime LastOutput { get; private set; } = DateTime.Now;
+        private System.Threading.Timer _watchdog = null;
+
         public List<string> Results { get; private set; } = new List<string>();
         public List<string> Exceptions { get; private set; } = new List<string>();
 
@@ -64,25 +76,29 @@ namespace LogicReinc.BlendFarm.Server
 
         private void HandleContinue()
         {
-            IsContinueing = true;
-            OnBlenderContinue?.Invoke(this);
             int currentCount = 0;
 
             lock (_continueLock)
             {
+                IsContinueing = !_cancelled;
                 currentCount = ContinueCount + 1;
                 ContinueCount = currentCount;
             }
+            OnBlenderContinue?.Invoke(this);
             if (CONTINUE_TIMEOUT == 0)
                 Cancel();
             else
             {
                 Task.Delay(CONTINUE_TIMEOUT).ContinueWith((x) =>
                 {
-                    if (ContinueCount == currentCount && IsContinueing)
+                    //Same lock as Continue, so a continuation can't start between the check and the kill
+                    lock (_continueLock)
                     {
-                        Console.WriteLine($"Continuation timeout, ending process..");
-                        Cancel();
+                        if (ContinueCount == currentCount && IsContinueing)
+                        {
+                            Console.WriteLine($"Continuation timeout, ending process..");
+                            Cancel();
+                        }
                     }
                 });
             }
@@ -105,10 +121,22 @@ namespace LogicReinc.BlendFarm.Server
                     CreateNoWindow = true
                 }
             };
+            process.EnableRaisingEvents = true;
             process.Exited += (a, b) => Active = false;
+            if (_cancelled)
+                return new Result()
+                {
+                    Results = Results.ToArray(),
+                    Exceptions = Exceptions.ToArray()
+                };
             Process = process;
             process.Start();
             Active = true;
+            //A cancel that raced with the start could not kill the process yet
+            if (_cancelled)
+                Cancel();
+            LastOutput = DateTime.Now;
+            StartWatchdog();
 
             while (!process.StandardOutput.EndOfStream)
             {
@@ -122,6 +150,8 @@ namespace LogicReinc.BlendFarm.Server
             }
 
             process.WaitForExit();
+            _watchdog?.Dispose();
+            _watchdog = null;
             return new Result()
             {
                 Results = Results.ToArray(),
@@ -133,10 +163,11 @@ namespace LogicReinc.BlendFarm.Server
         {
             lock (_continueLock)
             {
-                if (!IsContinueing)
+                if (!IsContinueing || _cancelled)
                     throw new InvalidOperationException("Attempting to continue a process that is not in continue state");
                 IsContinueing = false;
             }
+            LastOutput = DateTime.Now;
             Process.StandardInput.WriteLine(newPath);
             while (!Process.StandardOutput.EndOfStream)
             {
@@ -146,6 +177,8 @@ namespace LogicReinc.BlendFarm.Server
             }
 
             Process.WaitForExit();
+            _watchdog?.Dispose();
+            _watchdog = null;
         }
 
         /// <summary>
@@ -153,10 +186,42 @@ namespace LogicReinc.BlendFarm.Server
         /// </summary>
         public void Cancel()
         {
+            _cancelled = true;
             IsContinueing = false;
             Active = false;
-            if (Process != null)
-                Process.Kill();
+            _watchdog?.Dispose();
+            _watchdog = null;
+            try
+            {
+                if (Process != null && !Process.HasExited)
+                    Process.Kill(true);
+            }
+            catch (InvalidOperationException) { } //Already exited
+        }
+
+        /// <summary>
+        /// Kills Blender when it stops producing output while rendering
+        /// </summary>
+        private void StartWatchdog()
+        {
+            int minutes = ServerSettings.Instance.WatchdogMinutes;
+            if (minutes <= 0)
+                return;
+            _watchdog?.Dispose();
+            _watchdog = new System.Threading.Timer((state) =>
+            {
+                //Waiting for a continuation is expected silence, that has its own timeout
+                if (!Active || IsContinueing)
+                    return;
+                if (DateTime.Now.Subtract(LastOutput).TotalMinutes >= minutes)
+                {
+                    string msg = $"Watchdog: Blender produced no output for {minutes} minutes, killing it";
+                    Console.WriteLine(msg);
+                    Exceptions.Add(msg);
+                    OnBlenderException?.Invoke(msg);
+                    Cancel();
+                }
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
 
 
@@ -166,6 +231,7 @@ namespace LogicReinc.BlendFarm.Server
         /// <param name="line"></param>
         private bool ProcessBlenderLine(string line)
         {
+            LastOutput = DateTime.Now;
             Console.WriteLine(line);
 
             try
@@ -214,7 +280,11 @@ namespace LogicReinc.BlendFarm.Server
 
                 OnBlenderOutput?.Invoke(line);
             }
-            catch (Exception ex) { }
+            catch (Exception ex)
+            {
+                //Handlers (eg. sending results) run on the output thread, don't let them stop output processing
+                Console.WriteLine("Exception handling Blender output: " + ex.Message);
+            }
             return false;
         }
 

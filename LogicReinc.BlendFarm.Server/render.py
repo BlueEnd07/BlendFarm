@@ -19,15 +19,49 @@ import time
 from multiprocessing import cpu_count
 
 isPre3 = bpy.app.version < (3,0,0);
-isPreEeveeRename = bpy.app.version < (4, 2, 0);
 
 if(isPre3):
-    print('Detected Blender >= 3.0.0\n');
+    print('Detected Blender < 3.0.0\n');
 
 argv = sys.argv
 argv = argv[argv.index("--") + 1:]
 
 scn = bpy.context.scene
+#The file's own scene, used when a job doesn't specify one (the process may be reused across jobs)
+defaultSceneName = scn.name
+
+#Per scene, the values from the file for settings a job only sometimes overrides.
+#Restored before every job so "inherit" means the file's value, not the previous job's.
+sceneDefaults = {}
+
+def snapshotScene(s):
+    if s.name in sceneDefaults:
+        return;
+    d = dict(
+        camera = s.camera,
+        film_transparent = s.render.film_transparent,
+        fps = s.render.fps
+    );
+    try:
+        d["use_denoising"] = s.cycles.use_denoising;
+        d["denoiser"] = s.cycles.denoiser;
+    except Exception:
+        pass;
+    sceneDefaults[s.name] = d;
+
+def restoreScene(s):
+    d = sceneDefaults.get(s.name);
+    if d is None:
+        snapshotScene(s);
+        return;
+    s.camera = d["camera"];
+    s.render.film_transparent = d["film_transparent"];
+    s.render.fps = d["fps"];
+    if "use_denoising" in d:
+        s.cycles.use_denoising = d["use_denoising"];
+        s.cycles.denoiser = d["denoiser"];
+
+snapshotScene(scn);
 
 jsonPathInitial = argv[0];
 useContinue = len(argv) > 1 and argv[1] == 'True';
@@ -97,12 +131,18 @@ def renderWithSettings(renderSettings, id, path):
             selectedScene = bpy.data.scenes.get(scen);
             if(selectedScene is None):
                 raise Exception("Unknown Scene :" + scen);
+        else:
+            #No scene specified, use the file's scene (not whatever a previous job selected)
+            selectedScene = bpy.data.scenes.get(defaultSceneName) or scn;
+        if(selectedScene != scn):
             scn = selectedScene;
             if(bpy.context.window is not None):
                 bpy.context.window.scene = scn;
             bpy.context.view_layer.update();
-        else:
-            scen = scn.name;
+        scen = scn.name;
+
+        #Undo overrides of previous jobs in this process
+        restoreScene(scn);
 
         print("Using scene " + scn.name + "\n");
 
@@ -118,7 +158,8 @@ def renderWithSettings(renderSettings, id, path):
 
         # Set threading
         scn.render.threads_mode = 'FIXED';
-        scn.render.threads = max(cpu_count(), int(renderSettings["Cores"]));
+        cores = int(renderSettings["Cores"]);
+        scn.render.threads = min(cpu_count(), cores) if cores > 0 else cpu_count();
         
         if (isPre3):
             scn.render.tile_x = int(renderSettings["TileWidth"]);
@@ -191,11 +232,11 @@ def renderWithSettings(renderSettings, id, path):
                 scn.cycles.device = 'GPU';
                 print("Use OpenCL (GPU)");
             elif renderType == 5: #HIP
-                useDevices("HIP", True, False);
+                useDevices("HIP", True, True);
                 scn.cycles.device = 'GPU';
                 print("Use HIP");
             elif renderType == 6: #HIP (GPU Only)
-                useDevices("HIP", True, True);
+                useDevices("HIP", True, False);
                 scn.cycles.device = 'GPU';
                 print("Use HIP (GPU)");
             elif renderType == 7: #METAL
@@ -238,12 +279,12 @@ def renderWithSettings(renderSettings, id, path):
             scn.render.fps = fps;
 
         if(engine == 1): #Eevee
-            if(isPreEeveeRename):
-                print("Using EEVEE");
-                scn.render.engine = "BLENDER_EEVEE";
-            else:
-                print("Using EEVEE_NEXT");
-                scn.render.engine = "BLENDER_EEVEE_NEXT";
+            #4.2-4.5 call it BLENDER_EEVEE_NEXT, older and 5.0+ use BLENDER_EEVEE
+            engines = [e.identifier for e in scn.render.bl_rna.properties['engine'].enum_items];
+            eeveeName = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in engines else "BLENDER_EEVEE";
+            print("Using " + eeveeName);
+            scn.render.engine = eeveeName;
+            scn.eevee.taa_render_samples = int(renderSettings["Samples"]);
         else:
             scn.render.engine = "CYCLES";
 

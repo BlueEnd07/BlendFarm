@@ -7,8 +7,11 @@ using LogicReinc.BlendFarm.Windows;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -55,7 +58,33 @@ namespace LogicReinc.BlendFarm.Objects
 
         public bool FinishedAllFrames { get; set; }
 
-        public System.Drawing.Image LastImage { get; set; }
+        private readonly object _lastImageLock = new object();
+        private System.Drawing.Image _lastImage = null;
+        /// <summary>
+        /// Last rendered image; setting it disposes the previous one
+        /// </summary>
+        public System.Drawing.Image LastImage
+        {
+            get
+            {
+                lock (_lastImageLock)
+                    return _lastImage;
+            }
+            set
+            {
+                System.Drawing.Image old;
+                lock (_lastImageLock)
+                {
+                    old = _lastImage;
+                    _lastImage = value;
+                    if (old != null && !ReferenceEquals(old, value))
+                        old.Dispose();
+                }
+            }
+        }
+
+        //Captured once per run so every frame shares the same {date}/{time} tokens.
+        private DateTime _runTimestamp = DateTime.Now;
 
         public QueueItem(RenderWindow owner, OpenBlenderProject proj, RenderManagerSettings settings, string saveTo = null, int frames = 1)
         {
@@ -89,6 +118,41 @@ namespace LogicReinc.BlendFarm.Objects
             return path.Length > 42 ? $"...{path.Substring(path.Length - 39)}" : path;
         }
 
+        public QueueItemDTO ToDTO()
+        {
+            return new QueueItemDTO()
+            {
+                BlendFile = Project?.BlendFile,
+                Settings = Settings,
+                Frames = Frames,
+                FrameFormat = FrameFormat,
+                SaveTo = SaveTo,
+                UseNetworkedPath = Project?.UseNetworkedPath ?? false,
+                NetworkPathWindows = Project?.NetworkPathWindows,
+                NetworkPathLinux = Project?.NetworkPathLinux,
+                NetworkPathMacOS = Project?.NetworkPathMacOS
+            };
+        }
+
+        public static QueueItem FromDTO(RenderWindow owner, OpenBlenderProject proj, QueueItemDTO dto)
+        {
+            //Deep-copy the settings so a loaded/duplicated item never shares an instance.
+            RenderManagerSettings settings = dto.Settings;
+            try
+            {
+                settings = JsonSerializer.Deserialize<RenderManagerSettings>(JsonSerializer.Serialize(dto.Settings));
+            }
+            catch
+            {
+                settings = dto.Settings;
+            }
+
+            return new QueueItem(owner, proj, settings, dto.SaveTo, Math.Max(1, dto.Frames))
+            {
+                FrameFormat = string.IsNullOrEmpty(dto.FrameFormat) ? "#.png" : dto.FrameFormat
+            };
+        }
+
         public event PropertyChangedEventHandler PropertyChanged;
 
         public async Task UpdateValues(RenderWindow window, BlendFarmManager manager, RenderManagerSettings settings)
@@ -102,8 +166,51 @@ namespace LogicReinc.BlendFarm.Objects
             }
         }
 
+        //Builds the token context for output-filename templates from this item's settings.
+        private OutputNameContext BuildContext(int frame, int startFrame, int endFrame)
+        {
+            return new OutputNameContext()
+            {
+                Scene = string.IsNullOrEmpty(Settings.Scene) ? Project?.Name : Settings.Scene,
+                Camera = Settings.Camera,
+                Engine = Settings.Engine.ToString(),
+                Format = Settings.RenderFormat,
+                Samples = Settings.Samples,
+                Width = Settings.OutputWidth,
+                Height = Settings.OutputHeight,
+                Frame = frame,
+                StartFrame = startFrame,
+                EndFrame = endFrame,
+                Timestamp = _runTimestamp
+            };
+        }
+
+        private RenderCompletionInfo BuildCompletionInfo(bool success, TimeSpan elapsed, string error, BlendFarmManager manager)
+        {
+            int endFrame = Settings.Frame + Math.Max(1, Frames) - 1;
+            return new RenderCompletionInfo()
+            {
+                SceneName = string.IsNullOrEmpty(Settings?.Scene) ? Project?.Name : Settings.Scene,
+                BlendFile = Project?.BlendFile,
+                Success = success,
+                IsAnimation = IsAnimation,
+                FrameStart = Settings?.Frame ?? 0,
+                FrameEnd = endFrame,
+                FrameCount = Math.Max(1, Frames),
+                Elapsed = elapsed,
+                NodeCount = manager?.Nodes?.Count(x => x.Connected) ?? 0,
+                Width = Settings?.OutputWidth ?? 0,
+                Height = Settings?.OutputHeight ?? 0,
+                Samples = Settings?.Samples ?? 0,
+                EngineOrError = success ? (Settings?.Engine.ToString() ?? "") : error,
+                OutputDirectory = string.IsNullOrEmpty(SaveTo) ? null : (Directory.Exists(SaveTo) ? SaveTo : Path.GetDirectoryName(SaveTo))
+            };
+        }
+
         public async Task Execute(RenderWindow window, BlendFarmManager manager)
         {
+            _runTimestamp = DateTime.Now;
+            Stopwatch queueWatch = Stopwatch.StartNew();
             try
             {
                 if (Frames <= 1)
@@ -136,16 +243,35 @@ namespace LogicReinc.BlendFarm.Objects
                         await manager.Sync(Project.BlendFile, window.UseSyncCompression);
                     else
                         await manager.Sync(Project.BlendFile, Project.NetworkPathWindows, Project.NetworkPathLinux, Project.NetworkPathMacOS);
-                    Thread.Sleep(500);
+                    await System.Threading.Tasks.Task.Delay(500);
 
-                    await Task.Render();
+                    bool rendered = await Task.Render();
                     System.Drawing.Image final = ((Task is IImageTask) ? (IImageTask)Task : null)?.FinalImage;
-                    Thread.Sleep(500);
-                    LastImage = final;
+                    if (!rendered || Task.Cancelled || final == null)
+                    {
+                        //Cancelled or produced nothing, don't save or report it as completed
+                        StoppedEarly(window);
+                        return;
+                    }
+                    await System.Threading.Tasks.Task.Delay(500);
+                    //Keep an own copy, the task owns the final image
+                    LastImage = (System.Drawing.Image)final.Clone();
                     FinishedAllFrames = true;
 
                     if (!string.IsNullOrEmpty(SaveTo))
-                        final.Save(SaveTo);
+                    {
+                        //If SaveTo points at a directory, expand the project's output template into a filename.
+                        string target = SaveTo;
+                        if (Directory.Exists(SaveTo))
+                        {
+                            string template = string.IsNullOrEmpty(Project?.OutputTemplate) ? "#" : Project.OutputTemplate;
+                            string name = OutputNaming.FormatOutputFileName(template, BuildContext(Settings.Frame, Settings.Frame, Settings.Frame));
+                            if (!OutputNaming.HasImageExtension(name))
+                                name = name + "." + (ImageFormats.GetExtension(Settings.RenderFormat) ?? "png");
+                            target = Path.Combine(SaveTo, name);
+                        }
+                        Statics.SaveImage(final, target);
+                    }
 
                     //Apply final to canvas
                     Dispatcher.UIThread.InvokeAsync(() =>
@@ -156,6 +282,8 @@ namespace LogicReinc.BlendFarm.Objects
                         RefreshInfo();
                     });
                     window.RefreshCurrentProject();
+                    queueWatch.Stop();
+                    _owner.NotifyRenderCompleted(BuildCompletionInfo(true, queueWatch.Elapsed, null, manager));
                 }
                 else
                 {
@@ -165,10 +293,14 @@ namespace LogicReinc.BlendFarm.Objects
 
                     //Normal Render
                     int endFrame = Settings.Frame + Frames - 1;
-                    Task = manager.GetAnimationTask(Project.BlendFile, Settings.Frame, endFrame, Settings, async (task, frame) =>
+                    //Resume: leave out frames that already have an output file
+                    List<int> skipFrames = (Project?.SkipExistingFrames ?? false)
+                        ? OutputNaming.FindExistingFrames(SaveTo, Settings.Frame, endFrame, (f) => OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(f, Settings.Frame, endFrame)))
+                        : new List<int>();
+                    Task = manager.GetAnimationTask(Project.BlendFile, Settings.Frame, endFrame, Settings, (task, frame) =>
                     {
 
-                        string fileName = Statics.FormatAnimationFrameFileName(FrameFormat, task.Frame, Settings.Frame, endFrame);
+                        string fileName = OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(task.Frame, Settings.Frame, endFrame));
                         string filePath = Path.Combine(SaveTo, fileName);
 
                         try
@@ -177,19 +309,30 @@ namespace LogicReinc.BlendFarm.Objects
                         }
                         catch (Exception ex)
                         {
-                            MessageWindow.Show(_owner, "Frame Save Error", $"Animation frame {task.Frame} failed to save due to:" + ex.Message);
-                            return;
+                            //Throw so the frame is retried instead of silently lost
+                            Dispatcher.UIThread.Post(() => _owner.AddActivityLog($"Queue frame {task.Frame} failed to save: {ex.Message}", ActivityLogType.Error));
+                            throw;
                         }
 
-                        using (System.Drawing.Image image = ImageConverter.Convert(frame.Image, task.Parent.Settings.RenderFormat))
+                        try
                         {
-                            if (image != null)
+                            using (System.Drawing.Image image = ImageConverter.Convert(frame.Image, task.Parent.Settings.RenderFormat))
                             {
-                                Project.LastImage = image.ToAvaloniaBitmap();
-                                LastImage = image;
+                                if (image != null)
+                                {
+                                    Avalonia.Media.Imaging.Bitmap preview = image.ToAvaloniaBitmap();
+                                    Dispatcher.UIThread.Post(() => Project.LastImage = preview);
+                                    //Clone, image is disposed when leaving the using block (previous clone is disposed by the setter)
+                                    LastImage = (System.Drawing.Image)image.Clone();
+                                }
+                                else
+                                    Dispatcher.UIThread.Post(() => Project.LastImage = Statics.NoPreviewImage);
                             }
-                            else
-                                Project.LastImage = Statics.NoPreviewImage;
+                        }
+                        catch (Exception ex)
+                        {
+                            //The frame is already saved, a failed preview must not fail (and retry) it
+                            Console.WriteLine($"Failed to preview queue frame {task.Frame}: {ex.Message}");
                         }
 
                         //Remove bytes
@@ -197,7 +340,7 @@ namespace LogicReinc.BlendFarm.Objects
 
                         RefreshInfo();
                         window.RefreshCurrentProject();
-                    });
+                    }, skipFrames);
                     Task.OnProgress += (t, p) =>
                     {
                         if (p >= 1)
@@ -214,15 +357,22 @@ namespace LogicReinc.BlendFarm.Objects
                     else
                         await manager.Sync(Project.BlendFile, Project.NetworkPathWindows, Project.NetworkPathLinux, Project.NetworkPathMacOS);
 
-                    Thread.Sleep(500);
+                    await System.Threading.Tasks.Task.Delay(500);
 
-                    await Task.Render();
+                    bool renderedAnim = await Task.Render();
                     //await Task.RenderAnimation(Settings.Frame, Settings.Frame + Frames);
+                    if (!renderedAnim || Task.Cancelled)
+                    {
+                        StoppedEarly(window);
+                        return;
+                    }
 
                     FinishedAllFrames = true;
                     Project.SetRenderTask(null);
                     RefreshInfo();
                     window.RefreshCurrentProject();
+                    queueWatch.Stop();
+                    _owner.NotifyRenderCompleted(BuildCompletionInfo(true, queueWatch.Elapsed, null, manager));
                 }
             }
             catch (Exception ex)
@@ -234,7 +384,17 @@ namespace LogicReinc.BlendFarm.Objects
                 Project.SetRenderTask(null);
                 RefreshInfo();
                 window.RefreshCurrentProject();
+                queueWatch.Stop();
+                _owner.NotifyRenderCompleted(BuildCompletionInfo(false, queueWatch.Elapsed, ex.Message, manager));
             }
+        }
+
+        private void StoppedEarly(RenderWindow window)
+        {
+            Cancelled = true;
+            Project.SetRenderTask(null);
+            RefreshInfo();
+            window?.RefreshCurrentProject();
         }
 
         public void RefreshInfo()
@@ -270,10 +430,15 @@ namespace LogicReinc.BlendFarm.Objects
             {
                 if (Completed)
                 {
-                    if (!string.IsNullOrEmpty(SaveTo))
-                        BitmapViewer.Show(_owner, Project.BlendFile, LastImage.ToAvaloniaBitmap());
-                    else
-                        BitmapViewer.Show(_owner, Project.BlendFile, LastImage.ToAvaloniaBitmap());
+                    Avalonia.Media.Imaging.Bitmap bitmap;
+                    //Convert under the lock so a new frame can't dispose the image mid-conversion
+                    lock (_lastImageLock)
+                    {
+                        if (_lastImage == null)
+                            return;
+                        bitmap = _lastImage.ToAvaloniaBitmap();
+                    }
+                    BitmapViewer.Show(_owner, Project.BlendFile, bitmap);
                 }
             }
             catch (Exception ex)

@@ -1,7 +1,6 @@
 ﻿using LogicReinc.BlendFarm.Shared;
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Text;
 
 namespace LogicReinc.BlendFarm.Client
@@ -91,6 +90,12 @@ namespace LogicReinc.BlendFarm.Client
         /// Currently enabled by default because 2.91.0 has this issue.
         /// </summary>
         public bool BlenderUpdateBugWorkaround { get; set; } = true;
+
+        /// <summary>
+        /// When the queue runs dry, idle nodes also render the slowest in-progress frames/tiles.
+        /// The first copy to finish is used and the other is cancelled, so one slow node can't hold up the end of a render.
+        /// </summary>
+        public bool DuplicateSlowTasks { get; set; } = true;
 
         /// <summary>
         /// Settings describing render

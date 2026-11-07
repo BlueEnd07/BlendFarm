@@ -127,6 +127,9 @@ namespace LogicReinc.BlendFarm.Server
         /// </summary>
         public static BlenderRenderSettings FromRenderSettings(RenderPacketModel settings)
         {
+            //TaskID becomes the output file name
+            if (!string.IsNullOrEmpty(settings.TaskID) && !SessionUtil.IsSafeId(settings.TaskID))
+                throw new ArgumentException("Invalid TaskID");
             var result = new BlenderRenderSettings()
             {
                 TaskID = (!string.IsNullOrEmpty(settings.TaskID)) ? settings.TaskID : Guid.NewGuid().ToString(),

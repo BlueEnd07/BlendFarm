@@ -72,7 +72,7 @@ namespace LogicReinc.BlendFarm.Windows
 
             if (!_noServer)
             {
-                LocalServer.OnServerException += (a, b) =>
+                Action<RenderServer, Exception> onServerException = (a, b) =>
                 {
                     Dispatcher.UIThread.InvokeAsync(() =>
                     {
@@ -82,7 +82,7 @@ Or if you're running this program twice, ignore I guess.
 (TCP: {ServerSettings.Instance.Port}, UDP: {ServerSettings.Instance.BroadcastPort})");
                     });
                 };
-                LocalServer.OnBroadcastException += (a, b) =>
+                Action<RenderServer, Exception> onBroadcastException = (a, b) =>
                 {
                     Dispatcher.UIThread.InvokeAsync(() =>
                     {
@@ -92,14 +92,28 @@ This may have to do with the port being in use. Note that to discover other pcs 
 (TCP: {ServerSettings.Instance.Port}, UDP: {ServerSettings.Instance.BroadcastPort})");
                     });
                 };
-                LocalServer.OnDiscoveredServer += (name, address, port) =>
+                Action<string, string, int> onDiscoveredServer = (name, address, port) =>
                 {
-                    if (_manager != null)
-                        _manager.TryAddDiscoveryNode(name, address, port);
+                    try
+                    {
+                        if (_manager != null)
+                            _manager.TryAddDiscoveryNode(name, address, port);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to add discovered node {name}: {ex.Message}");
+                    }
                 };
+                LocalServer.OnServerException += onServerException;
+                LocalServer.OnBroadcastException += onBroadcastException;
+                LocalServer.OnDiscoveredServer += onDiscoveredServer;
                 LocalServer.Start();
                 Closed += (a, b) =>
                 {
+                    //LocalServer is static and outlives this window: don't keep it (and this window) referenced
+                    LocalServer.OnServerException -= onServerException;
+                    LocalServer.OnBroadcastException -= onBroadcastException;
+                    LocalServer.OnDiscoveredServer -= onDiscoveredServer;
                     if (!_startedNew)
                         LocalServer.Stop();
                 };
@@ -329,7 +343,7 @@ This may have to do with the port being in use. Note that to discover other pcs 
 
             _startedNew = true;
 
-            string localPath = SystemInfo.RelativeToApplicationDirectory(BlendFarmSettings.Instance.LocalBlendFiles);
+            string localPath = AppPaths.Resolve(BlendFarmSettings.Instance.LocalBlendFiles);
             //Setup manager
             _manager = new BlendFarmManager(path, version.Name, null, localPath);
 
@@ -338,7 +352,15 @@ This may have to do with the port being in use. Note that to discover other pcs 
                 _manager.AddNode(BlendFarmManager.LocalNodeName, localAddress, RenderType.OPTIX_GPUONLY, ServerSettings.Instance.BasicSecurityPassword);
 
             foreach (var pair in BlendFarmSettings.Instance.PastClients.ToList())
-                _manager.AddNode(pair.Key, pair.Value.Address, pair.Value.RenderType, pair.Value.Pass);
+            {
+                RenderNode added = _manager.AddNode(pair.Key, pair.Value.Address, pair.Value.RenderType, pair.Value.Pass);
+                //Restore persisted performance so auto work-distribution reflects prior benchmarks.
+                if (added != null)
+                {
+                    added.Performance = pair.Value.Performance;
+                    added.PerformanceScorePP = pair.Value.PerformanceScorePP;
+                }
+            }
 
             if (useAssetSync.IsChecked.Value)
             {

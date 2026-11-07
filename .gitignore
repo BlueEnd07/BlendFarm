@@ -366,3 +366,16 @@ Deploy/
 build.sh
 
 packages-microsoft-prod.deb
+
+# Runtime data written to the working directory
+/ClientSettings
+/ServerSettings
+/VersionCache
+/VersionCustom
+/LocalBlendFiles/
+/BlenderData/
+/RenderData/
+compressed.zip
+/ClientSettings.*
+/ServerSettings.*
+/BlendCache/

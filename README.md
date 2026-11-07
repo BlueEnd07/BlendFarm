@@ -70,7 +70,7 @@ Default ports:
 
 Requirements:
 
-- .NET 6 SDK
+- .NET 8 SDK
 - Blender only if you want to test local rendering outside the bundled/downloaded Blender flow
 
 Build:
@@ -88,8 +88,8 @@ dotnet test LogicReinc.BlendFarm.sln
 Publish examples:
 
 ```bash
-dotnet publish LogicReinc.BlendFarm -f net6.0 -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true
-dotnet publish LogicReinc.BlendFarm.Server -f net6.0 -c Release -r linux-x64 -p:PublishSingleFile=true --self-contained true
+dotnet publish LogicReinc.BlendFarm -f net8.0 -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true
+dotnet publish LogicReinc.BlendFarm.Server -f net8.0 -c Release -r linux-x64 -p:PublishSingleFile=true --self-contained true
 ```
 
 ## Repository Layout

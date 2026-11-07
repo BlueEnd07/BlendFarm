@@ -70,9 +70,13 @@ namespace LogicReinc.BlendFarm.Server
                     if (!string.IsNullOrWhiteSpace(registryProcessor))
                         return registryProcessor.Trim();
 
-                    string wmicProcessor = ParseWmicValue(RunAndReadLines("wmic", "cpu get name /value"), "Name");
-                    if (!string.IsNullOrWhiteSpace(wmicProcessor))
-                        return wmicProcessor;
+                    try
+                    {
+                        string wmicProcessor = ParseWmicValue(RunAndReadLines("wmic", "cpu get name /value"), "Name");
+                        if (!string.IsNullOrWhiteSpace(wmicProcessor))
+                            return wmicProcessor;
+                    }
+                    catch { } //wmic missing on newer Windows
 
                     string processor = Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER");
                     if (!string.IsNullOrWhiteSpace(processor))
@@ -104,10 +108,19 @@ namespace LogicReinc.BlendFarm.Server
             {
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
-                    string[] names = ParseWmicValues(RunAndReadLines("wmic", "path win32_VideoController get name /value"), "Name");
-                    string display = JoinDistinct(names);
+                    //wmic is removed from current Windows 11 builds, read the display adapter class from the registry first
+                    string display = JoinDistinct(GetWindowsDisplayAdapters());
                     if (!string.IsNullOrWhiteSpace(display))
                         return display;
+
+                    try
+                    {
+                        string[] names = ParseWmicValues(RunAndReadLines("wmic", "path win32_VideoController get name /value"), "Name");
+                        display = JoinDistinct(names);
+                        if (!string.IsNullOrWhiteSpace(display))
+                            return display;
+                    }
+                    catch { }
                 }
                 else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                 {
@@ -179,6 +192,46 @@ namespace LogicReinc.BlendFarm.Server
             }
         }
 
+        private const string DISPLAY_CLASS_KEY = @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
+        private static readonly string[] IgnoredDisplayAdapters = new string[] { "Basic Display", "Basic Render", "Remote Display", "Virtual Display", "Indirect Display" };
+
+        /// <summary>
+        /// Display adapter names from the registry (the same list Device Manager shows), without spawning a process
+        /// </summary>
+        private static IEnumerable<string> GetWindowsDisplayAdapters()
+        {
+            List<string> names = new List<string>();
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                return names;
+            try
+            {
+                using (var classKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(DISPLAY_CLASS_KEY))
+                {
+                    if (classKey == null)
+                        return names;
+                    foreach (string sub in classKey.GetSubKeyNames())
+                    {
+                        //Adapter entries are 0000, 0001.., skip "Properties" and such
+                        if (!sub.All(char.IsDigit))
+                            continue;
+                        try
+                        {
+                            using (var adapter = classKey.OpenSubKey(sub))
+                            {
+                                string name = adapter?.GetValue("DriverDesc")?.ToString();
+                                if (!string.IsNullOrWhiteSpace(name) &&
+                                    !IgnoredDisplayAdapters.Any(x => name.IndexOf(x, StringComparison.OrdinalIgnoreCase) >= 0))
+                                    names.Add(name.Trim());
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            return names;
+        }
+
         private static string RunAndReadFirstLine(string fileName, string arguments)
         {
             return RunAndReadLines(fileName, arguments).FirstOrDefault();
@@ -194,9 +247,14 @@ namespace LogicReinc.BlendFarm.Server
                 process.StartInfo.RedirectStandardOutput = true;
                 process.StartInfo.CreateNoWindow = true;
                 process.Start();
-                string output = process.StandardOutput.ReadToEnd();
-                if (!process.WaitForExit(1500))
-                    process.Kill();
+                //Read async so the timeout applies, ReadToEnd would block until the process exits
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                if (!process.WaitForExit(3000))
+                {
+                    try { process.Kill(); } catch { }
+                    return new string[0];
+                }
+                string output = outputTask.GetAwaiter().GetResult();
                 return output
                     .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(line => line.Trim())

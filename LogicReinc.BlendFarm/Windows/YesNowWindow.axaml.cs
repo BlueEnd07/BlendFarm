@@ -1,6 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using System.Threading.Tasks;
 
 namespace LogicReinc.BlendFarm.Windows
@@ -63,6 +64,11 @@ namespace LogicReinc.BlendFarm.Windows
 
             await window.ShowDialog(owner);
             return window.Response;
+        }
+
+        public static Task<bool> ShowOnUIThread(Window owner, string title, string desc)
+        {
+            return Dispatcher.UIThread.InvokeAsync(() => Show(owner, title, desc));
         }
     }
 }

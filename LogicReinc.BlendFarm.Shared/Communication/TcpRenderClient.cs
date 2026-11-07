@@ -1,5 +1,6 @@
 ﻿using LogicReinc.BlendFarm.Shared.Exceptions;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -15,7 +16,7 @@ namespace LogicReinc.BlendFarm.Shared.Communication
     {
         private const int MAX_HEADER_SIZE = 24;
 
-        private static Dictionary<Type, Dictionary<string, MethodInfo>> _typeHandlers = new Dictionary<Type, Dictionary<string, MethodInfo>>();
+        private static ConcurrentDictionary<Type, Dictionary<string, MethodInfo>> _typeHandlers = new ConcurrentDictionary<Type, Dictionary<string, MethodInfo>>();
         private Dictionary<string, MethodInfo> _handlers = null;
 
         public TcpClient Client { get; private set; }
@@ -37,6 +38,7 @@ namespace LogicReinc.BlendFarm.Shared.Communication
             //Cache?
             _handlers = GetTypeHandlers(GetType());
             Client = client;
+            EnableKeepAlive(client);
 
             Listening = true;
             _listenThread = new Thread(async () =>
@@ -67,6 +69,31 @@ namespace LogicReinc.BlendFarm.Shared.Communication
 
         protected virtual void HandleDisconnected()
         {
+        }
+
+        //Values of SocketOptionName.TcpKeepAliveTime/Interval/RetryCount, not exposed in netstandard2.0
+        private const SocketOptionName TCP_KEEPALIVE_TIME = (SocketOptionName)3;
+        private const SocketOptionName TCP_KEEPALIVE_INTERVAL = (SocketOptionName)17;
+        private const SocketOptionName TCP_KEEPALIVE_RETRYCOUNT = (SocketOptionName)16;
+
+        /// <summary>
+        /// A peer that loses power or network never closes the connection, so without keepalive a
+        /// pending render waits forever. Probe after 30s idle, every 5s, give up after 4 missed probes (~50s).
+        /// </summary>
+        private static void EnableKeepAlive(TcpClient client)
+        {
+            try
+            {
+                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, TCP_KEEPALIVE_TIME, 30);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, TCP_KEEPALIVE_INTERVAL, 5);
+                client.Client.SetSocketOption(SocketOptionLevel.Tcp, TCP_KEEPALIVE_RETRYCOUNT, 4);
+            }
+            catch (Exception ex)
+            {
+                //Older runtimes/platforms may not support the tuning options, plain keepalive still applies
+                Console.WriteLine("Could not configure TCP keepalive: " + ex.Message);
+            }
         }
 
         public static async Task<TcpRenderClient> Connect(string address, int port)
@@ -137,17 +164,44 @@ namespace LogicReinc.BlendFarm.Shared.Communication
                         Disconnect();
                     }
                     else
-                        Console.WriteLine($"Exception in handling [{header}] due to {ex.Message}");
-                    throw;
+                    {
+                        Console.WriteLine($"Exception in handling [{header}] due to {ex.InnerException?.Message ?? ex.Message}");
+                        SendFailureReply(req, ex.InnerException ?? ex);
+                    }
                 }
                 catch (Exception ex)
                 {
+                    //Includes failing to serialize or send the response
                     Console.WriteLine($"Exception in handling [{header}] due to {ex.Message}");
-                    throw;
+                    SendFailureReply(req, ex);
                 }
             });
         }
 
+
+        /// <summary>
+        /// Replies to a request whose handler (or response) failed, so the requesting side doesn't wait forever.
+        /// A disconnected packet carrying the ResponseID completes the request on any client version,
+        /// newer clients recognise the ResponseID and report it as a failed request rather than a disconnect.
+        /// </summary>
+        private void SendFailureReply(BlendFarmMessage req, Exception ex)
+        {
+            if (req?.RequestID == null || !Listening)
+                return;
+            try
+            {
+                SendPacket(new BlendFarmDisconnected()
+                {
+                    ResponseID = req.RequestID,
+                    IsError = true,
+                    Reason = $"Failed to handle {req.GetType().Name}: {ex.Message}"
+                });
+            }
+            catch (Exception sendEx)
+            {
+                Console.WriteLine($"Failed to send failure reply due to {sendEx.Message}");
+            }
+        }
 
         private async Task Listen()
         {
@@ -158,23 +212,51 @@ namespace LogicReinc.BlendFarm.Shared.Communication
             while (Listening)
             {
 
-                int read = 0;
-                if ((read = await str.ReadAsync(headerBytes, 0, MAX_HEADER_SIZE, _cancel.Token)) != MAX_HEADER_SIZE)
-                {
-                    if (read == 0)
-                        throw new IOException("Connection closed by remote host");
-                    throw new InvalidDataException($"Expected header of length {MAX_HEADER_SIZE}, found {read}");
-                }
+                await ReadExactlyAsync(str, headerBytes, MAX_HEADER_SIZE);
                 string header = Encoding.UTF8.GetString(headerBytes).Trim('_');
 
-                if ((read = await str.ReadAsync(sizeBytes, 0, 4, _cancel.Token)) != sizeBytes.Length)
-                    throw new InvalidDataException($"Expected size of length {sizeBytes.Length}, found {read}");
+                await ReadExactlyAsync(str, sizeBytes, sizeBytes.Length);
                 int size = (int)BinaryParser.Deserialize(sizeBytes, typeof(int));
+                if (size < 0)
+                    throw new InvalidDataException($"Invalid packet size {size}");
 
                 if(header != "consoleActivityResponse")
                     Console.WriteLine($"Received {header} [{size}] from {Client.Client.RemoteEndPoint}");
 
+                //Unknown packet, skip its body to stay in sync with the stream
+                if (!BlendFarmMessage.HasPackageType(header))
+                {
+                    await SkipBytesAsync(str, size);
+                    continue;
+                }
+
                 HandlePacket(header, reader);
+            }
+        }
+
+        /// <summary>
+        /// Reads exactly count bytes, TCP may return a partial read
+        /// </summary>
+        private async Task ReadExactlyAsync(Stream str, byte[] buffer, int count)
+        {
+            int done = 0;
+            while (done < count)
+            {
+                int read = await str.ReadAsync(buffer, done, count - done, _cancel.Token);
+                if (read == 0)
+                    throw new IOException("Connection closed by remote host");
+                done += read;
+            }
+        }
+        private async Task SkipBytesAsync(Stream str, int count)
+        {
+            byte[] buffer = new byte[Math.Min(count, 8192)];
+            while (count > 0)
+            {
+                int read = await str.ReadAsync(buffer, 0, Math.Min(count, buffer.Length), _cancel.Token);
+                if (read == 0)
+                    throw new IOException("Connection closed by remote host");
+                count -= read;
             }
         }
 
@@ -228,11 +310,10 @@ namespace LogicReinc.BlendFarm.Shared.Communication
 
         private static Dictionary<string, MethodInfo> GetTypeHandlers(Type type)
         {
-            if (!_typeHandlers.ContainsKey(type))
-                _typeHandlers.Add(type, type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                    .Where(x => x.GetCustomAttribute<BlendFarmHeaderAttribute>() != null)
-                    .ToDictionary(x => x.GetCustomAttribute<BlendFarmHeaderAttribute>().Header, y => y));
-            return _typeHandlers[type];
+            //Clients are constructed from several threads, the dictionary is never mutated after creation
+            return _typeHandlers.GetOrAdd(type, t => t.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Where(x => x.GetCustomAttribute<BlendFarmHeaderAttribute>() != null)
+                .ToDictionary(x => x.GetCustomAttribute<BlendFarmHeaderAttribute>().Header, y => y));
         }
     }
 }

@@ -134,6 +134,9 @@
                             <Button Background="Transparent" BorderThickness="0" Padding="3" IsVisible="{Binding Connected}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=TerminalNode}" CommandParameter="{Binding .}" ToolTip.Tip="Open node console">
                               <Image Source="/Icons/terminal.png" Height="17" Width="17" />
                             </Button>
+                            <Button Background="Transparent" BorderThickness="0" Padding="3" IsVisible="{Binding Connected}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=BenchmarkNode}" CommandParameter="{Binding .}" ToolTip.Tip="Benchmark this node">
+                              <TextBlock Text="⏱" FontSize="15" Foreground="{StaticResource BlendFarmTextBrush}" />
+                            </Button>
                           </StackPanel>
                           <Border Grid.Column="4" Background="#2A2A2A" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2" Margin="8,0,0,0" VerticalAlignment="Center" PointerPressed="NodeInspectorPointerPressed" PointerMoved="NodeInspectorPointerMoved" ToolTip.Tip="Drag to reorder this node">
                             <TextBlock Text="::" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontWeight="Bold" />
@@ -227,6 +230,9 @@
                 <TextBlock x:Name="statsAverageFrame" FontSize="15">--</TextBlock>
               </StackPanel>
             </Grid>
+            <Button Margin="0,10,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding BenchmarkAll}" IsEnabled="{Binding !IsRendering}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Render a small fixed workload on each connected node to score its speed">
+              Benchmark All Nodes
+            </Button>
           </StackPanel>
         </Border>
       </Grid>
@@ -316,6 +322,29 @@
             Grid.Row="1"
             VerticalAlignment="Bottom"
             Height="5"></ProgressBar>
+      <Border x:Name="toastOverlay"
+              Grid.Row="1"
+              Grid.Column="0"
+              IsVisible="False"
+              ZIndex="100"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Top"
+              Margin="0,16,0,0"
+              MaxWidth="480"
+              Padding="14,10"
+              CornerRadius="6"
+              BorderThickness="1"
+              Background="{StaticResource BlendFarmSurfaceBrush}"
+              BorderBrush="{StaticResource BlendFarmSoftBorderBrush}">
+        <StackPanel Orientation="Horizontal">
+          <TextBlock x:Name="toastIcon" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0" Text="✓" />
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock x:Name="toastTitle" FontWeight="Bold" Foreground="#F4F6FF" Text="Render complete" />
+            <TextBlock x:Name="toastBody" Foreground="#B8B8B8" TextWrapping="Wrap" Text="" />
+          </StackPanel>
+          <Button x:Name="toastOpenFolder" IsVisible="False" VerticalAlignment="Center" Margin="14,0,0,0" Padding="10,4" ToolTip.Tip="Open the folder the render was saved to">Open folder</Button>
+        </StackPanel>
+      </Border>
       <GridSplitter Grid.Row="2"
                     Grid.Column="0"
                     Height="6"
@@ -610,6 +639,17 @@
                               </Grid>
                             </Grid>
 
+                            <Grid ColumnDefinitions="88,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Foreground="#B8B8B8" TextAlignment="Left" Margin="0,8,8,8" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame} (unpadded). Use # for the zero-padded frame number.">Output Name</TextBlock>
+                              <TextBox Grid.Column="1" x:Name="inputOutputTemplate" Watermark="{}{scene}_###" Text="{Binding CurrentProject.OutputTemplate}" ToolTip.Tip="Default filename for saved renders. Tokens: {scene} {camera} {engine} {samples} {width} {height} {date} {time} {frame} (unpadded). Use # for the zero-padded frame number." />
+                            </Grid>
+                            <Grid ColumnDefinitions="88,*" Margin="0,0,0,8">
+                              <StackPanel Grid.Column="1">
+                                <TextBlock x:Name="outputNamePreview" Foreground="#8A90A6" FontSize="12" TextWrapping="Wrap" ToolTip.Tip="Example file names produced by File Format (animation) and Output Name (still)" />
+                                <CheckBox Foreground="#D9DEF0" Margin="0,4,0,0" IsChecked="{Binding CurrentProject.SkipExistingFrames}" ToolTip.Tip="Animation frames whose file already exists in the output folder are not rendered again. Use it to resume an interrupted render.">Skip existing frames</CheckBox>
+                              </StackPanel>
+                            </Grid>
+
                             <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,5">
                               <StackPanel Grid.Column="0">
                                 <Grid ColumnDefinitions="140,*">
@@ -633,10 +673,10 @@
 								</Button>
 							</Grid>
                           <Grid ColumnDefinitions="*,*" Margin="14,3,14,5">
-                            <Button Grid.Column="0" Margin="0,0,6,0" Padding="10,9" IsVisible="{Binding !CurrentProject.IsRendering}" Command="{Binding Render}" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}">
+                            <Button Grid.Column="0" Margin="0,0,6,0" Padding="10,9" IsVisible="{Binding !CurrentProject.IsRendering}" IsEnabled="{Binding !IsRendering}" Command="{Binding Render}" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}">
                               Render Now
                             </Button>
-                            <Button Grid.Column="1" Margin="6,0,0,0" Padding="10,9" IsVisible="{Binding !CurrentProject.IsRendering}" Command="{Binding RenderAnimation}" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}">
+                            <Button Grid.Column="1" Margin="6,0,0,0" Padding="10,9" IsVisible="{Binding !CurrentProject.IsRendering}" IsEnabled="{Binding !IsRendering}" Command="{Binding RenderAnimation}" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}">
                               Render Animation
                             </Button>
                             <Button Grid.ColumnSpan="2" Padding="10,9" IsVisible="{Binding CurrentProject.IsRendering}" Command="{Binding CancelRender}" Background="#B91C1C" BorderBrush="#EF4444">
@@ -726,6 +766,21 @@
                               </StackPanel>
                             </StackPanel>
                           </StackPanel>
+                          <StackPanel Orientation="Vertical" Margin="0,10,0,0">
+                            <TextBlock Margin="10,4" Foreground="#B8B8B8" FontWeight="Bold">Notifications</TextBlock>
+                            <StackPanel Orientation="Horizontal">
+                              <TextBlock Width="150" TextAlignment="Right" Margin="10" ToolTip.Tip="Show an in-app toast when a render or queue item finishes">Show toast on completion</TextBlock>
+                              <CheckBox IsChecked="{Binding NotificationsEnabled}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                              <TextBlock Width="150" TextAlignment="Right" Margin="10" ToolTip.Tip="POST a completion notification to a webhook (Discord-compatible)">Send webhook</TextBlock>
+                              <CheckBox IsChecked="{Binding WebhookEnabled}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                              <TextBlock Width="90" TextAlignment="Right" Margin="10">Webhook URL</TextBlock>
+                              <TextBox Width="220" Watermark="https://discord.com/api/webhooks/..." Text="{Binding WebhookUrl}" LostFocus="WebhookUrlLostFocus" />
+                            </StackPanel>
+                          </StackPanel>
                         </StackPanel>
                       </TabItem>
                     </TabControl>
@@ -737,6 +792,12 @@
               </TabItem>
               <TabItem Header="{Binding QueueName}">
                 <!--BEGIN QUEUE-->
+                <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="6,6,6,4">
+                  <Button Padding="10,5" Margin="0,0,6,0" Command="{Binding SaveQueue}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Save the queued items to disk">Save</Button>
+                  <Button Padding="10,5" Margin="0,0,6,0" Command="{Binding LoadQueue}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Load a previously saved queue">Load</Button>
+                  <Button Padding="10,5" Command="{Binding ClearQueue}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Foreground="#FF5555" ToolTip.Tip="Remove all items that aren't currently rendering">Clear</Button>
+                </StackPanel>
                 <ListBox Items="{Binding Queue}" Background="Transparent" BorderBrush="{StaticResource BlendFarmBorderBrush}" Padding="6" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                   <ListBox.ItemTemplate>
                     <DataTemplate>
@@ -748,6 +809,9 @@
                             <TextBlock Text="{Binding State}" Foreground="#AAAAAA" FontSize="12" Margin="0,3,0,0" />
                           </StackPanel>
                           <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                            <Button Padding="7,5" Width="30" Margin="0,0,4,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=MoveQueueItemUp}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Move up">↑</Button>
+                            <Button Padding="7,5" Width="30" Margin="0,0,4,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=MoveQueueItemDown}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Move down">↓</Button>
+                            <Button Padding="7,5" Width="30" Margin="0,0,6,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=DuplicateQueueItem}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Duplicate">⧉</Button>
                             <Button Padding="8,5" Margin="0,0,6,0" IsVisible="{Binding Completed}" Command="{Binding OpenQueueItem}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Foreground="#00FF33">Open</Button>
                             <Button Padding="8,5" Margin="0,0,6,0" IsVisible="{Binding IsCancelable}" Command="{Binding CancelQueueItem}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" Foreground="#FF5555">Cancel</Button>
                             <Button Padding="7,5" Width="34" IsVisible="{Binding IsDeletable}" Command="{Binding DeleteQueueItem}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Delete from queue">
@@ -764,6 +828,7 @@
                     </DataTemplate>
                   </ListBox.ItemTemplate>
                 </ListBox>
+                </DockPanel>
                 <!--END QUEUE-->
               </TabItem>
             </TabControl>

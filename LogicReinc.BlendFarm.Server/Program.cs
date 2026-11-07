@@ -61,6 +61,7 @@ namespace LogicReinc.BlendFarm.Server
             //Clears any sessions left after previous close
             Console.WriteLine("Cleaning up old sessions..");
             CleanupOldSessions();
+            BlendCache.CleanupIncoming();
 
             //RenderNode Server
             Server = new RenderServer(ServerSettings.Instance.Port, ServerSettings.Instance.BroadcastPort, true);
