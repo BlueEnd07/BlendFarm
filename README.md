@@ -30,16 +30,22 @@ The desktop app sends the `.blend` file to each node, and every node renders its
 
 Download the latest release from the [Releases page](https://github.com/BlueEnd07/BlendFarm/releases):
 
-- `BlendFarm-<version>-<platform>.zip`: the desktop app
-- `BlendFarm-Server-<version>-<platform>.zip`: the render node
+- `BlendFarm-<version>-win-x64-portable.zip` / `-linux-x64.zip`: the desktop app
+- `BlendFarm-Server-<version>-win-x64-portable.zip` / `-linux-x64.zip`: the render node
 
 > Use the same BlendFarm version on the desktop app and on every render node.
 
 ### Windows
 
-1. Unzip **BlendFarm** on your main computer and run `LogicReinc.BlendFarm.exe`.
+The Windows zips are portable: no installer, no subfolder inside the zip. Unzip into a folder and run.
+
+1. Unzip **BlendFarm** on your main computer and run `LogicReinc.BlendFarm.exe`. It never asks for firewall or admin access.
 2. Unzip **BlendFarm Server** on each helper computer and run `LogicReinc.BlendFarm.Server.exe`.
-3. Each render node needs **TCP port 15000** open for incoming connections. If Windows Firewall asks, click **Allow**. If you don't have admin rights, the server prints the one-line `netsh` command an admin can run once to open the port.
+3. Each render node needs **TCP port 15000** open for incoming connections, because the desktop app connects to it. Windows asks for this the first time an exe runs from a new folder. Either:
+   - click **Allow** (needs an admin password once), or
+   - have an admin double-click **`Allow BlendFarm through Firewall.bat`** (in the server zip) once. The rule is for the ports, not for one exe, so it keeps working after updates and from any folder.
+
+**Updating:** unzip the new version **into the same folder** as the old one and overwrite. The exe keeps its path, so Windows keeps the permission it already gave and doesn't ask again.
 
 If Windows SmartScreen warns about an unknown app, click **More info → Run anyway**.
 
@@ -120,6 +126,12 @@ Make release builds (change `-r` to `linux-x64`, `osx-x64` or `osx-arm64` as nee
 ```bash
 dotnet publish LogicReinc.BlendFarm        -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true
 dotnet publish LogicReinc.BlendFarm.Server -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true
+```
+
+Or build all the release zips (portable Windows zips and Linux zips) into `Deploy\Release` on Windows:
+
+```powershell
+.\build-release.ps1 -Version 2.0.0
 ```
 
 ### Project layout
