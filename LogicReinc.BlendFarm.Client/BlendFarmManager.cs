@@ -65,7 +65,7 @@ namespace LogicReinc.BlendFarm.Client
         }
     }
 
-    public class BlendFarmManager
+    public partial class BlendFarmManager
     {
         public const string LocalNodeName = "Local";
 
@@ -542,7 +542,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Synchronize the Blend file with a network path with all connected nodes
         /// </summary>
-        public async Task Sync(string localPath, string windowsPath, string linuxPath, string macOSPath)
+        public async Task Sync(string localPath, string windowsPath, string linuxPath, string macOSPath, IEnumerable<RenderNode> nodes = null)
         {
             BlendFarmFileSession session = GetOrCreateSession(localPath);
             await session.SyncLock.WaitAsync();
@@ -553,7 +553,7 @@ namespace LogicReinc.BlendFarm.Client
 
                 long id = session.FileID;
 
-                await Task.WhenAll(Nodes.ToList().Select(async node =>
+                await Task.WhenAll((nodes ?? Nodes).Where(node => node.IsEnabled && node.Connected).ToList().Select(async node =>
                 {
                     SyncResponse resp = null;
                     try
@@ -580,7 +580,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Synchronize the Blend file with all connected nodes
         /// </summary>
-        public async Task Sync(string file, bool compress = false)
+        public async Task Sync(string file, bool compress = false, IEnumerable<RenderNode> nodes = null)
         {
             BlendFarmFileSession session = GetOrCreateSession(file);
             //Held until every node is done, the watcher can't replace the snapshot while it is hashed, planned or sent
@@ -597,7 +597,7 @@ namespace LogicReinc.BlendFarm.Client
                 string toSend = session.LocalBlendFile;
                 if (session.ContentHash == null || session.ContentHashFileID != id)
                 {
-                    Nodes.ToList().ForEach(x => x.UpdateActivity("Checking file.."));
+                    (nodes ?? Nodes).Where(node => node.IsEnabled && node.Connected).ToList().ForEach(x => x.UpdateActivity("Checking file.."));
                     session.ContentHash = await Task.Run(() => ContentHash.ComputeFile(toSend));
                     session.ContentHashFileID = id;
                 }
@@ -606,7 +606,7 @@ namespace LogicReinc.BlendFarm.Client
 
                 //Shared by all nodes, nodes with the same base version reuse one delta computation
                 DeltaPlanner planner = new DeltaPlanner(toSend);
-                await Task.WhenAll(Nodes.ToList().Select(async node =>
+                await Task.WhenAll((nodes ?? Nodes).Where(node => node.IsEnabled && node.Connected).ToList().Select(async node =>
                 {
                     try
                     {
@@ -633,7 +633,7 @@ namespace LogicReinc.BlendFarm.Client
         public RenderTask GetImageTask(string file, RenderManagerSettings settings = null, Action<RenderSubTask, SKBitmap> onResultUpdated = null, Action<RenderSubTask, SKBitmap> onTileReceived = null)
         {
             BlendFarmFileSession session = GetOrCreateSession(file);
-            CurrentTask = RenderTask.GetImageRenderTask(Nodes.ToList(), session.SessionID, Version, session.FileID, settings);
+            CurrentTask = RenderTask.GetImageRenderTask(GetRenderNodes(), session.SessionID, Version, session.FileID, settings);
 
             if (onResultUpdated != null)
                 CurrentTask.OnResultUpdated += onResultUpdated;
@@ -646,7 +646,7 @@ namespace LogicReinc.BlendFarm.Client
         public RenderTask GetAnimationTask(string file, int start, int end,RenderManagerSettings settings = null, Action<RenderSubTask, SubTaskResult> onResult = null, IEnumerable<int> skipFrames = null)
         {
             BlendFarmFileSession session = GetOrCreateSession(file);
-            CurrentTask = new AnimationTask(Nodes.ToList(), session.SessionID, Version, session.FileID, start, end, settings)
+            CurrentTask = new AnimationTask(GetRenderNodes(), session.SessionID, Version, session.FileID, start, end, settings)
             {
                 SkipFrames = new HashSet<int>(skipFrames ?? Enumerable.Empty<int>())
             };

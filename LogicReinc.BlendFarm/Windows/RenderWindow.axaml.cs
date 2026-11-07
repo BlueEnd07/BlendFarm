@@ -758,7 +758,7 @@ namespace LogicReinc.BlendFarm.Windows
                 }
                 catch (Exception ex)
                 {
-                    node.UpdateException(ex.Message);
+                    node.UpdateException(NodeConnectionPolicy.DescribeFailure(ex));
                 }
             }));
         }
@@ -824,7 +824,7 @@ namespace LogicReinc.BlendFarm.Windows
                 }
                 catch (Exception ex)
                 {
-                    node.UpdateException(ex.Message);
+                    node.UpdateException(NodeConnectionPolicy.DescribeFailure(ex));
                 }
             }
             else
@@ -864,6 +864,7 @@ namespace LogicReinc.BlendFarm.Windows
             node.OnDisconnected += HandleNodeDisconnected;
             node.OnActivityChanged += HandleNodeActivityChanged;
             node.OnLog += HandleNodeLog;
+            AttachNodeManagement(node);
         }
 
         private void DetachNodeActivity(RenderNode node)
@@ -875,6 +876,7 @@ namespace LogicReinc.BlendFarm.Windows
             node.OnDisconnected -= HandleNodeDisconnected;
             node.OnActivityChanged -= HandleNodeActivityChanged;
             node.OnLog -= HandleNodeLog;
+            DetachNodeManagement(node);
         }
 
         private void HandleNodeConnected(RenderNode node)
@@ -1335,6 +1337,8 @@ namespace LogicReinc.BlendFarm.Windows
         {
             if (project == null || Manager == null)
                 return;
+
+            Manager.GetRenderNodes();
 
             Console.WriteLine($"Syncing project before render: '{project.Name}' scene='{project.Scene}' camera='{project.Camera}'");
 
@@ -2062,7 +2066,7 @@ namespace LogicReinc.BlendFarm.Windows
         {
             List<RenderNode> connected;
             lock (Nodes)
-                connected = Nodes.Where(x => x.Connected).ToList();
+                connected = Nodes.Where(x => x.Connected && x.IsEnabled).ToList();
             await BenchmarkNodesInternal(connected);
         }
 
@@ -2083,7 +2087,7 @@ namespace LogicReinc.BlendFarm.Windows
                 return;
             }
 
-            List<RenderNode> targets = nodes?.Where(x => x != null && x.Connected).ToList() ?? new List<RenderNode>();
+            List<RenderNode> targets = nodes?.Where(x => x != null && x.Connected && x.IsEnabled).ToList() ?? new List<RenderNode>();
             if (targets.Count == 0)
             {
                 AddActivityLog("No connected nodes to benchmark", ActivityLogType.Warning);
@@ -2095,14 +2099,14 @@ namespace LogicReinc.BlendFarm.Windows
             try
             {
                 AddActivityLog($"Benchmark started for {targets.Count} node(s)", ActivityLogType.Info);
-                await SyncProjectBeforeRender(project);
+                await SyncManagedNodes(project, targets);
 
                 RenderManagerSettings baseSettings = GetSettingsFromUI(project);
                 List<(RenderNode node, decimal score)> results = new List<(RenderNode, decimal)>();
 
                 foreach (RenderNode node in targets)
                 {
-                    if (!node.Connected)
+                    if (!node.Connected || !node.IsEnabled)
                         continue;
                     try
                     {

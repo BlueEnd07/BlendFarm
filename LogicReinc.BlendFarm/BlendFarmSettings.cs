@@ -57,6 +57,7 @@ namespace LogicReinc.BlendFarm
         public bool Option_UseAssetsSync { get; set; }
         public bool Option_ConnectLocal { get; set; } = true;
         public bool Option_ImportSettings { get; set; } = true;
+        public bool AutoReconnectNodes { get; set; } = true;
 
         /// <summary>
         /// Render-completion notification preferences
@@ -167,6 +168,7 @@ namespace LogicReinc.BlendFarm
 
         public class HistoryClient
         {
+            public bool IsEnabled { get; set; } = true;
             public string Name { get; set; }
             public string Address { get; set; }
 

@@ -53,6 +53,17 @@
             <Button Grid.Column="0" Padding="10,8" Margin="0,0,6,0" Command="{Binding ConnectAll}" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}" Foreground="{StaticResource BlendFarmOnAccentBrush}">Connect All</Button>
             <Button Grid.Column="1" Padding="10,8" Margin="6,0,0,0" Command="{Binding SyncAll}" Background="{StaticResource BlendFarmButtonBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}">Sync All</Button>
           </Grid>
+          <WrapPanel Margin="0,6,0,0">
+            <Button Command="{Binding SelectAllNodes}" Padding="6,4" Margin="0,0,4,4">Select all</Button>
+            <Button Command="{Binding SelectNoNodes}" Padding="6,4" Margin="0,0,4,4">None</Button>
+            <Button Command="{Binding ConnectSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Connect selected</Button>
+            <Button Command="{Binding SyncSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Sync selected</Button>
+            <Button Command="{Binding BenchmarkSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Benchmark selected</Button>
+            <Button Command="{Binding EnableSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Enable selected</Button>
+            <Button Command="{Binding DisableSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Disable selected</Button>
+            <Button Command="{Binding RemoveSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Remove selected</Button>
+          </WrapPanel>
+          <CheckBox IsChecked="{Binding AutoReconnectNodes, Mode=TwoWay}" Content="Auto-reconnect nodes" Margin="0,4,0,4"/>
         </StackPanel>
         <TabControl Grid.Row="1" Margin="0">
           <!--SECTION: Nodes-->
@@ -88,6 +99,7 @@
                             <StackPanel Grid.Column="1" Margin="8,0,6,0">
                               <TextBlock Text="{Binding NodeTitle}" Foreground="{StaticResource BlendFarmTextBrush}" FontWeight="Bold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding NodeTitle}"/>
                               <TextBlock Text="{Binding Address}" Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                              <TextBlock Text="Disabled" IsVisible="{Binding !IsEnabled}" FontSize="10" FontWeight="Bold" Foreground="{StaticResource BlendFarmWarningBrush}"/>
                             </StackPanel>
                             <Border Grid.Column="2" Background="{StaticResource BlendFarmSuccessBackgroundBrush}" BorderBrush="{StaticResource BlendFarmSuccessBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="5,2" IsVisible="{Binding Connected}">
                               <TextBlock Text="{Binding StatusLabel}" Foreground="{StaticResource BlendFarmSuccessBrush}" FontSize="10" FontWeight="Bold"/>
@@ -102,7 +114,7 @@
                               <Button Background="Transparent" BorderThickness="0" Padding="3" IsVisible="{Binding Connected}" Command="{Binding Disconnect}" ToolTip.Tip="Disconnect node">
                                 <Image Source="/Icons/radioOn.png" Height="18" Width="18"/>
                               </Button>
-                              <Button Background="Transparent" BorderThickness="0" Padding="3" IsEnabled="{Binding Activity, Converter={x:Static StringConverters.IsNullOrEmpty}}" IsVisible="{Binding !Connected}" Command="{Binding ConnectAndPrepare}" CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=DataContext.Version.Name}" ToolTip.Tip="Connect node">
+                              <Button Background="Transparent" BorderThickness="0" Padding="3" IsEnabled="{Binding Activity, Converter={x:Static StringConverters.IsNullOrEmpty}}" IsVisible="{Binding !Connected}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=ConnectManagedNode}" CommandParameter="{Binding .}" ToolTip.Tip="Connect node">
                                 <Image Source="/Icons/radioOff.png" Height="18" Width="18"/>
                               </Button>
                               <Button Background="Transparent" BorderThickness="0" Padding="3" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=DeleteNode}" CommandParameter="{Binding .}" ToolTip.Tip="Delete node">
@@ -121,6 +133,16 @@
                           </Grid>
                         </Expander.Header>
                         <StackPanel>
+                          <WrapPanel Margin="0,6,0,0">
+                            <CheckBox Content="Select" IsChecked="{Binding IsSelected, Mode=TwoWay}" Margin="0,0,12,0"/>
+                            <CheckBox Content="Use for rendering" IsChecked="{Binding IsEnabled, Mode=TwoWay}"/>
+                            <Border IsVisible="{Binding !IsEnabled}" Background="{StaticResource BlendFarmRaisedBrush}" CornerRadius="3" Padding="5,2" Margin="6,0,0,0"><TextBlock Text="Disabled" FontSize="11"/></Border>
+                            <Border Background="{StaticResource BlendFarmRaisedBrush}" CornerRadius="3" Padding="5,2" Margin="6,0,0,0"><TextBlock Text="{Binding RenderTypeBadge}" FontSize="11" ToolTip.Tip="{Binding RenderType}"/></Border>
+                          </WrapPanel>
+                          <TextBlock Text="{Binding ConnectionTimeDisplay}" FontSize="11" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                          <TextBlock Text="{Binding ReconnectStatus}" FontSize="11" Foreground="{StaticResource BlendFarmWarningBrush}" TextWrapping="Wrap"/>
+                          <Button Content="Stop reconnecting" Command="{Binding Disconnect}" IsVisible="{Binding IsReconnecting}" Padding="6,3"/>
+                          <TextBlock Text="{Binding Exception}" FontSize="11" Foreground="{StaticResource BlendFarmErrorBrush}" TextWrapping="Wrap"/>
                           <Border Height="1" Background="{StaticResource BlendFarmSoftBorderBrush}" Margin="0,10,0,9"/>
                           <Grid ColumnDefinitions="72,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Grid.Column="0" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" Margin="0,0,8,5">Owner</TextBlock>

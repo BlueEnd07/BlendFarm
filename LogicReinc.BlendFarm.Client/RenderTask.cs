@@ -131,7 +131,9 @@ namespace LogicReinc.BlendFarm.Shared
             if (Cancelled)
                 return false;
 
-            List<RenderNode> pool = Nodes.Where(x => x.Connected).ToList();
+            List<RenderNode> pool = Nodes.Where(x => x.Connected && x.IsEnabled).ToList();
+            if (pool.Count == 0)
+                throw new InvalidOperationException(NodeConnectionPolicy.NoEnabledNodes);
             List<RenderNode> validNodes = new List<RenderNode>();
 
             foreach (RenderNode node in pool)
