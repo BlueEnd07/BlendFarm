@@ -24,11 +24,13 @@ namespace LogicReinc.BlendFarm.Client.ImageTypes
         /// </summary>
         public static SKRectI GetTileRect(decimal x, decimal x2, decimal y, decimal y2, int outputWidth, int outputHeight)
         {
-            int tileWidth = (int)((x2 - x) * outputWidth);
-            int tileHeight = (int)((y2 - y) * outputHeight);
-            int posX = (int)(x * outputWidth);
-            int posY = (int)(outputHeight - y * outputHeight - tileHeight);
-            return SKRectI.Create(posX, posY, tileWidth, tileHeight);
+            //Edges are truncated individually (like Blender's border), so neighbouring tiles share edges
+            //and a tile ending at 1 always reaches the edge of the image
+            int left = (int)(x * outputWidth);
+            int right = (int)(x2 * outputWidth);
+            int bottom = (int)(y * outputHeight);
+            int top = (int)(y2 * outputHeight);
+            return SKRectI.Create(left, outputHeight - top, right - left, top - bottom);
         }
 
         /// <summary>
