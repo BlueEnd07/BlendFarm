@@ -69,15 +69,8 @@
             </ListBox.ItemTemplate>
           </ListBox>
 
-          <Button Margin="0,0,0,12" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}" FontSize="18" Height="48" Background="{StaticResource BlendFarmAccentBrush}" Command="{Binding LoadProject}">Load Project</Button>
+          <Button Margin="0" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}" FontSize="18" Height="48" Background="{StaticResource BlendFarmAccentBrush}" Command="{Binding LoadProject}">Load Project</Button>
 
-          <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" Margin="0,0,0,8">LAST ANNOUNCEMENT</TextBlock>
-          <Button Background="{StaticResource BlendFarmPanelBrush}" Margin="0" BorderBrush="{StaticResource BlendFarmBorderBrush}" Height="48" Command="{Binding OpenLastAnnouncement}">
-            <Grid ColumnDefinitions="Auto,*" Margin="10,0">
-              <TextBlock Grid.Column="0" Text="{Binding LastAnnouncement.DateText}" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,0,10,0" />
-              <TextBlock Grid.Column="1" Text="{Binding LastAnnouncement.Name}" TextTrimming="CharacterEllipsis" />
-            </Grid>
-          </Button>
         </StackPanel>
       </Grid>
     </Grid>

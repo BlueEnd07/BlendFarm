@@ -5,7 +5,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
+using LogicReinc.BlendFarm.Client.ImageTypes;
+using SkiaSharp;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
@@ -217,7 +218,7 @@ namespace LogicReinc.BlendFarm.Tests
             watch.Restart();
 
             int render = 0;
-            Image final = await manager.Render(BLEND_FILE, new RenderManagerSettings()
+            SKBitmap final = await manager.Render(BLEND_FILE, new RenderManagerSettings()
             {
                 OutputWidth = 640,
                 OutputHeight = 360,
@@ -225,11 +226,12 @@ namespace LogicReinc.BlendFarm.Tests
                 Samples = 8
             }, (task, bitmap) =>
             {
-                bitmap.Save($"{RESULTS_DIRECTORY}/Test.Render_Managed_Split.{render}.png");
+                lock (task.Parent.ResultLock)
+                    ImageEncoder.Save(bitmap, $"{RESULTS_DIRECTORY}/Test.Render_Managed_Split.{render}.png");
             });
             long renderTime = watch.ElapsedMilliseconds;
 
-            final.Save($"{RESULTS_DIRECTORY}/Test.Render_Managed_Split.png");
+            ImageEncoder.Save(final, $"{RESULTS_DIRECTORY}/Test.Render_Managed_Split.png");
 
             File.WriteAllText($"{RESULTS_DIRECTORY}/Test.Render_Managed_Split.Info.json", JsonSerializer.Serialize(new Dictionary<string, object>()
             {
@@ -252,7 +254,7 @@ namespace LogicReinc.BlendFarm.Tests
             int render = 0;
 
             bool gotBitmap = false;
-            Image final = await manager.Render(BLEND_FILE, new RenderManagerSettings()
+            SKBitmap final = await manager.Render(BLEND_FILE, new RenderManagerSettings()
             {
                 Strategy = RenderStrategy.Chunked,
                 ChunkHeight = 1,
@@ -263,12 +265,12 @@ namespace LogicReinc.BlendFarm.Tests
             }, null,
             (task, bitmap) =>
             {
-                bitmap.Save($"{RESULTS_DIRECTORY}/Test.Render_Managed_Chunked.Tile.{render++}.png");
+                ImageEncoder.Save(bitmap, $"{RESULTS_DIRECTORY}/Test.Render_Managed_Chunked.Tile.{render++}.png");
                 gotBitmap = true;
             });
             long renderTime = watch.ElapsedMilliseconds;
 
-            final.Save($"{RESULTS_DIRECTORY}/Test.Render_Managed_Chunked.png");
+            ImageEncoder.Save(final, $"{RESULTS_DIRECTORY}/Test.Render_Managed_Chunked.png");
 
             File.WriteAllText($"{RESULTS_DIRECTORY}/Test.Render_Managed_Chunked.Info.json", JsonSerializer.Serialize(new Dictionary<string, object>()
             {
@@ -294,7 +296,7 @@ namespace LogicReinc.BlendFarm.Tests
             int render = 0;
 
             bool gotBitmap = false;
-            Image final = await manager.Render(BLEND_FILE, new RenderManagerSettings()
+            SKBitmap final = await manager.Render(BLEND_FILE, new RenderManagerSettings()
             {
                 Strategy = RenderStrategy.SplitChunked,
                 ChunkHeight = 1,
@@ -305,12 +307,12 @@ namespace LogicReinc.BlendFarm.Tests
             }, null,
             (task, bitmap) =>
             {
-                bitmap.Save($"{RESULTS_DIRECTORY}/Test.Render_Managed_SplitChunked.Tile.{render++}.png");
+                ImageEncoder.Save(bitmap, $"{RESULTS_DIRECTORY}/Test.Render_Managed_SplitChunked.Tile.{render++}.png");
                 gotBitmap = true;
             });
             long renderTime = watch.ElapsedMilliseconds;
 
-            final.Save($"{RESULTS_DIRECTORY}/Test.Render_Managed_SplitChunked.png");
+            ImageEncoder.Save(final, $"{RESULTS_DIRECTORY}/Test.Render_Managed_SplitChunked.png");
 
             File.WriteAllText($"{RESULTS_DIRECTORY}/Test.Render_Managed_SplitChunked.Info.json", JsonSerializer.Serialize(new Dictionary<string, object>()
             {
@@ -337,7 +339,7 @@ namespace LogicReinc.BlendFarm.Tests
             }, null);
 
 
-            final.Save("result.png");
+            ImageEncoder.Save(final, "result.png");
         }*/
     }
 }

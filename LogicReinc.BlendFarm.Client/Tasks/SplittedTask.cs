@@ -1,164 +1,83 @@
-﻿using LogicReinc.BlendFarm.Client.Exceptions;
-using LogicReinc.BlendFarm.Client.ImageTypes;
-using LogicReinc.BlendFarm.Shared;
+﻿using LogicReinc.BlendFarm.Shared;
 using System;
 using System.Collections.Generic;
-using SkiaSharp;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace LogicReinc.BlendFarm.Client.Tasks
 {
-    public class SplittedTask : RenderTask, IImageTask
+    /// <summary>
+    /// Renders the frame as strips (vertical strips for SplitHorizontal, horizontal strips for SplitVertical).
+    /// There are a few strips per node, so faster nodes simply take more of them.
+    /// </summary>
+    public class SplittedTask : TiledImageTask
     {
+        /// <summary>
+        /// Strips generated per node (with more than one node)
+        /// </summary>
+        public const int SPLIT_TILES_PER_NODE = 3;
+        /// <summary>
+        /// Strips are never made narrower than this many pixels (before overlap)
+        /// </summary>
+        public const int MIN_SPLIT_TILE_PIXELS = 64;
+        /// <summary>
+        /// Overlap added on each side of a strip (0..1 of the frame)
+        /// </summary>
+        public const decimal SPLIT_OVERLAP = 0.01m;
+
         private bool _isVertical;
-
-
-        public SKBitmap FinalImage { get; private set; }
-        public byte[] FinalImageData { get; private set; }
-
 
         public SplittedTask(List<RenderNode> nodes, string session, string version, long fileId, RenderManagerSettings settings = null, bool vertical = false) : base(nodes, session, version, fileId, settings)
         {
             _isVertical = vertical;
         }
 
-        protected override async Task<bool> Execute()
+        protected override IReadOnlyList<RenderSubTask> CreateSubTasks()
         {
-            SKBitmap result = TileCompositor.CreateResult(Settings.OutputWidth, Settings.OutputHeight);
-            SKCanvas canvas = new SKCanvas(result);
-            byte[] wholeFrameData = null;
-            bool succeeded = false;
-            try
-            {
-                Dictionary<RenderNode, RenderSubTask> assignment = GetSplitSubTasks(_usedNodes, _isVertical);
+            int axisPixels = _isVertical ? Settings.OutputHeight : Settings.OutputWidth;
+            int count = GetSplitTileCount(UsedNodes.Count, axisPixels);
 
-                int finished = 0;
-                List<string> exceptions = new List<string>();
-                await Task.Run(() =>
+            List<RenderSubTask> tasks = new List<RenderSubTask>();
+            foreach ((decimal start, decimal end) in GetSplitRanges(count))
+            {
+                decimal startX = start;
+                decimal endX = end;
+                if (count > 1)
                 {
-                    ForceParallel(_usedNodes, (node) =>
-                    {
-                        RenderSubTask task = assignment[node];
-                        if (task == null)
-                            return;
-
-                        string lastException = null;
-                        bool rendered = false;
-                        for (int i = 0; i < 3; i++)
-                        {
-                            if (Cancelled)
-                                return;
-
-                            SubTaskResult taskPart = null;
-                            try
-                            {
-                                NotifySubTaskStarted(node, task);
-                                taskPart = ExecuteSubTask(node, task);
-                            }
-                            catch (TaskCanceledException ex)
-                            {
-                                if (Cancelled)
-                                    return;
-                            }
-                            catch(RecoverException ex)
-                            {
-                                node.UpdateException(ex.Message);
-                                lock (exceptions)
-                                    exceptions.Add(ex.Message);
-                                lastException = ex.Message;
-                                return;
-                            }
-                            catch (Exception ex)
-                            {
-                                node.UpdateException($"[{i + 1}/3] " + ex.Message);
-                                lastException = ex.Message;
-                                Thread.Sleep(1000);
-                                continue;
-                            }
-                            if (taskPart.Exception != null)
-                            {
-                                node.UpdateException($"[{i + 1}/3] " + taskPart.Exception.Message);
-                                lastException = taskPart.Exception.Message;
-                                Thread.Sleep(1000);
-                                continue;
-                            }
-
-                            ProcessTile(task, taskPart, ref canvas, ref result);
-                            if (assignment.Count == 1 && IsWholeFrame(task))
-                                wholeFrameData = taskPart.Image;
-
-                            AddProgress(task.Value);
-
-                            Interlocked.Increment(ref finished);
-                            rendered = true;
-                            NotifySubTaskFinished(node, task);
-                            return;
-                        }
-                        if (!rendered && lastException != null)
-                            lock (exceptions)
-                                exceptions.Add(lastException);
-                    });
-
-                    if (Volatile.Read(ref finished) != _usedNodes.Count)
-                        throw new AggregateException("Not all tiles rendered", exceptions.Select(x => new Exception(x)));
-
-                    return result;
-                });
-                succeeded = true;
-            }
-            finally
-            {
-                //A failed render hands out no image, release it right away
-                ReleaseResult(ref canvas, result, !succeeded);
-            }
-            FinalImage = result;
-            FinalImageData = wholeFrameData;
-            return true;
-        }
-
-
-
-
-        //SubTask Split
-        /// <summary>
-        /// Splits up file into subtasks among validNodes based on performance
-        /// Single subtask per node (see RenderSplit description)
-        /// </summary>
-        private Dictionary<RenderNode, RenderSubTask> GetSplitSubTasks(List<RenderNode> validNodes, bool isVertical = false, decimal overlap = 0.01m)
-        {
-            Dictionary<RenderNode, decimal> shares = GetRelativePerformance(validNodes);
-
-            Dictionary<RenderNode, RenderSubTask> tasks = new Dictionary<RenderNode, RenderSubTask>();
-            decimal offsetX = 0;
-            foreach (RenderNode node in validNodes)
-            {
-                decimal share = shares[node];
-
-                if (node == validNodes.Last())
-                    share = 1 - offsetX;
-
-                decimal startX = offsetX;
-                decimal endX = offsetX + share;
-
-                if (overlap > 0)
-                {
-                    startX = Math.Max(0, startX - overlap);
-                    endX = Math.Min(1, endX + overlap);
+                    startX = Math.Max(0, startX - SPLIT_OVERLAP);
+                    endX = Math.Min(1, endX + SPLIT_OVERLAP);
                 }
 
-                if (!isVertical)
-                    tasks.Add(node, new RenderSubTask(this, startX, endX, 0, 1, Settings.Frame));
+                if (!_isVertical)
+                    tasks.Add(new RenderSubTask(this, startX, endX, 0, 1, Settings.Frame));
                 else
-                    tasks.Add(node, new RenderSubTask(this, 0, 1, startX, endX, Settings.Frame));
-
-                offsetX += share;
+                    tasks.Add(new RenderSubTask(this, 0, 1, startX, endX, Settings.Frame));
             }
             return tasks;
         }
 
+        /// <summary>
+        /// Number of strips: one for a single node, otherwise a few per node as long as strips stay MIN_SPLIT_TILE_PIXELS wide
+        /// </summary>
+        internal static int GetSplitTileCount(int nodeCount, int axisPixels)
+        {
+            if (nodeCount <= 1)
+                return 1;
+            int maxCount = Math.Max(1, axisPixels / MIN_SPLIT_TILE_PIXELS);
+            return Math.Max(1, Math.Min(nodeCount * SPLIT_TILES_PER_NODE, maxCount));
+        }
+
+        /// <summary>
+        /// Equal ranges that exactly partition 0..1 (before overlap)
+        /// </summary>
+        internal static List<(decimal start, decimal end)> GetSplitRanges(int count)
+        {
+            List<(decimal, decimal)> ranges = new List<(decimal, decimal)>();
+            for (int i = 0; i < count; i++)
+            {
+                decimal start = (decimal)i / count;
+                decimal end = (i == count - 1) ? 1m : (decimal)(i + 1) / count;
+                ranges.Add((start, end));
+            }
+            return ranges;
+        }
     }
 }

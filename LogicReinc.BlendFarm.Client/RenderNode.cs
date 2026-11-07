@@ -134,7 +134,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// If node is connected
         /// </summary>
-        public bool Connected => Client != null && Client.Connected;
+        public virtual bool Connected => Client != null && Client.Connected;
         public string NodeTitle
         {
             get
@@ -319,10 +319,73 @@ namespace LogicReinc.BlendFarm.Client
             Pass = pass;
         }
 
+        /// <summary>
+        /// Raises OnBatchResult (also lets test doubles deliver batch results)
+        /// </summary>
+        protected void RaiseBatchResult(RenderBatchResult result)
+        {
+            OnBatchResult?.Invoke(this, result);
+        }
+
+        /// <summary>
+        /// Weight of a new sample in the moving averages of PerformanceScorePP and StartupCostMs
+        /// </summary>
+        public const double PERFORMANCE_EWMA_ALPHA = 0.3;
+        private readonly object _perfLock = new object();
+
+        /// <summary>
+        /// Estimated fixed cost of a render request (Blender start-up, file load) in ms, a moving average.
+        /// Only measured where it is cheap to do so (time to the first result of a batch), 0 if unknown.
+        /// </summary>
+        public double StartupCostMs { get; private set; } = 0;
+
+        /// <summary>
+        /// Records a render of pixelsRendered pixels that took ms, the measured time includes the start-up cost
+        /// </summary>
         public void UpdatePerformance(int pixelsRendered, int ms)
         {
-            decimal msPerPixel = (decimal)((decimal)pixelsRendered / ms);
-            PerformanceScorePP = msPerPixel;
+            UpdatePerformance(pixelsRendered, ms, true);
+        }
+        /// <summary>
+        /// Folds a pixels per ms sample into PerformanceScorePP (exponentially weighted moving average).
+        /// If the sample includes the start-up of the request, the known start-up cost is taken off first.
+        /// Full frames are measured the same way, a frame is just OutputWidth * OutputHeight pixels.
+        /// </summary>
+        public void UpdatePerformance(long pixelsRendered, double ms, bool includesStartup)
+        {
+            if (pixelsRendered <= 0 || ms <= 0)
+                return;
+            lock (_perfLock)
+            {
+                double renderMs = includesStartup ? Math.Max(ms - StartupCostMs, ms * 0.1) : ms;
+                double sample = pixelsRendered / renderMs;
+                double current = (double)PerformanceScorePP;
+                double next = (current > 0) ? PERFORMANCE_EWMA_ALPHA * sample + (1 - PERFORMANCE_EWMA_ALPHA) * current : sample;
+                PerformanceScorePP = (decimal)next;
+            }
+            TriggerPropChange(nameof(PerformanceScorePP), nameof(PerformanceDisplay));
+        }
+        /// <summary>
+        /// Folds a start-up cost sample (ms before the first pixel of a request was done) into StartupCostMs
+        /// </summary>
+        public void UpdateStartupCost(double ms)
+        {
+            if (ms < 0 || double.IsNaN(ms))
+                return;
+            lock (_perfLock)
+                StartupCostMs = (StartupCostMs > 0) ? PERFORMANCE_EWMA_ALPHA * ms + (1 - PERFORMANCE_EWMA_ALPHA) * StartupCostMs : ms;
+        }
+        /// <summary>
+        /// Expected duration in ms of a request rendering this many pixels, null while the node's speed is unknown
+        /// </summary>
+        public double? EstimateRenderMs(long pixels)
+        {
+            lock (_perfLock)
+            {
+                if (PerformanceScorePP <= 0)
+                    return null;
+                return StartupCostMs + pixels / (double)PerformanceScorePP;
+            }
         }
 
         public void RecordRenderCompletion(int framesRendered, int tilesRendered, int ms)
@@ -560,7 +623,7 @@ namespace LogicReinc.BlendFarm.Client
             {
                 RenderBatchResult renderBatchResult = ((RenderBatchResult)p);
 
-                OnBatchResult?.Invoke(this, renderBatchResult);
+                RaiseBatchResult(renderBatchResult);
                
             }
             if(p is BlendFarmDisconnected packDisconnected)
@@ -873,7 +936,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Render a batch of RenderSettings
         /// </summary>
-        public async Task<RenderBatchResponse> RenderBatch(RenderBatchRequest req)
+        public virtual async Task<RenderBatchResponse> RenderBatch(RenderBatchRequest req)
         {
             if (Client == null)
                 throw new InvalidOperationException("Client not connected");
@@ -918,7 +981,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Render a single RenderSettings
         /// </summary>
-        public async Task<RenderResponse> Render(RenderRequest req)
+        public virtual async Task<RenderResponse> Render(RenderRequest req)
         {
             if (Client == null)
                 throw new InvalidOperationException("Client not connected");
@@ -1011,7 +1074,7 @@ namespace LogicReinc.BlendFarm.Client
         /// Cancels an ongoing render with SesionID
         /// </summary>
         /// <returns></returns>
-        public async Task CancelRender(string sessionID)
+        public virtual async Task CancelRender(string sessionID)
         {
             CancellationTokenSource cts;
             lock (_taskLock)
@@ -1027,7 +1090,7 @@ namespace LogicReinc.BlendFarm.Client
         /// Cancels the render of a specific task, only if this node is still working on it.
         /// Used to stop a duplicated subtask without cancelling whatever the node moved on to.
         /// </summary>
-        public async Task CancelRender(string sessionID, string taskID)
+        public virtual async Task CancelRender(string sessionID, string taskID)
         {
             CancellationTokenSource cts;
             lock (_taskLock)
@@ -1099,7 +1162,7 @@ namespace LogicReinc.BlendFarm.Client
         }
 
 
-        public async Task<bool> IsBusy()
+        public virtual async Task<bool> IsBusy()
         {
             return (await Client.Send<IsBusyResponse>(new IsBusyRequest(), CancellationToken.None))?.IsBusy ?? false;
         }
@@ -1107,7 +1170,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <summary>
         /// Check if a version is present on node
         /// </summary>
-        public async Task<bool> CheckVersion(string version)
+        public virtual async Task<bool> CheckVersion(string version)
         {
             if (Client == null)
                 throw new InvalidOperationException("Client not connected");
@@ -1136,7 +1199,7 @@ namespace LogicReinc.BlendFarm.Client
         /// <param name="sess">An identifier for the session</param>
         /// <param name="id">An identifier for the file(.blend)</param>
         /// <returns></returns>
-        public async Task<bool> CheckSyncFile(string sess, long id)
+        public virtual async Task<bool> CheckSyncFile(string sess, long id)
         {
             if (Client == null)
                 throw new InvalidOperationException("Client not connected");

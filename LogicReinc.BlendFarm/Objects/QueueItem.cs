@@ -4,6 +4,7 @@ using LogicReinc.BlendFarm.Client.ImageTypes;
 using LogicReinc.BlendFarm.Client.Tasks;
 using LogicReinc.BlendFarm.Shared;
 using LogicReinc.BlendFarm.Windows;
+using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -59,11 +60,11 @@ namespace LogicReinc.BlendFarm.Objects
         public bool FinishedAllFrames { get; set; }
 
         private readonly object _lastImageLock = new object();
-        private System.Drawing.Image _lastImage = null;
+        private SKBitmap _lastImage = null;
         /// <summary>
-        /// Last rendered image; setting it disposes the previous one
+        /// Last rendered image, owned by this item; setting it disposes the previous one
         /// </summary>
-        public System.Drawing.Image LastImage
+        public SKBitmap LastImage
         {
             get
             {
@@ -72,7 +73,7 @@ namespace LogicReinc.BlendFarm.Objects
             }
             set
             {
-                System.Drawing.Image old;
+                SKBitmap old;
                 lock (_lastImageLock)
                 {
                     old = _lastImage;
@@ -216,16 +217,15 @@ namespace LogicReinc.BlendFarm.Objects
                 if (Frames <= 1)
                 {
                     //Normal Render
-                    Task = manager.GetImageTask(Project.BlendFile, Settings, (st, bitmap) =>
+                    //Coalesced tile previews, pixels are copied off the UI thread
+                    ResultPreview preview = new ResultPreview((bitmap) =>
                     {
                         //Apply image to canvas
-                        Dispatcher.UIThread.InvokeAsync(() =>
-                        {
-                            Project.LastImage = bitmap.ToAvaloniaBitmap();
-                            window.RefreshCurrentProject();
-                            RefreshInfo();
-                        });
+                        Project.LastImage = bitmap;
+                        window.RefreshCurrentProject();
+                        RefreshInfo();
                     });
+                    Task = manager.GetImageTask(Project.BlendFile, Settings, preview.OnResultUpdated);
                     Task.OnProgress += (t, p) =>
                     {
                         if (p >= 1)
@@ -246,7 +246,8 @@ namespace LogicReinc.BlendFarm.Objects
                     await System.Threading.Tasks.Task.Delay(500);
 
                     bool rendered = await Task.Render();
-                    System.Drawing.Image final = ((Task is IImageTask) ? (IImageTask)Task : null)?.FinalImage;
+                    IImageTask imageTask = Task as IImageTask;
+                    SKBitmap final = imageTask?.FinalImage;
                     if (!rendered || Task.Cancelled || final == null)
                     {
                         //Cancelled or produced nothing, don't save or report it as completed
@@ -254,8 +255,8 @@ namespace LogicReinc.BlendFarm.Objects
                         return;
                     }
                     await System.Threading.Tasks.Task.Delay(500);
-                    //Keep an own copy, the task owns the final image
-                    LastImage = (System.Drawing.Image)final.Clone();
+                    //Take over the final image, the task doesn't dispose it
+                    LastImage = final;
                     FinishedAllFrames = true;
 
                     if (!string.IsNullOrEmpty(SaveTo))
@@ -270,13 +271,15 @@ namespace LogicReinc.BlendFarm.Objects
                                 name = name + "." + (ImageFormats.GetExtension(Settings.RenderFormat) ?? "png");
                             target = Path.Combine(SaveTo, name);
                         }
-                        Statics.SaveImage(final, target);
+                        Statics.SaveImage(final, target, imageTask.FinalImageData);
                     }
 
-                    //Apply final to canvas
+                    //Apply final to canvas, copied here off the UI thread
+                    Avalonia.Media.Imaging.Bitmap finalPreview = final.ToAvaloniaBitmap(Task.ResultLock);
                     Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        Project.LastImage = final.ToAvaloniaBitmap();
+                        preview.Close();
+                        Project.LastImage = finalPreview;
 
                         Project.SetRenderTask(null);
                         RefreshInfo();
@@ -316,18 +319,25 @@ namespace LogicReinc.BlendFarm.Objects
 
                         try
                         {
-                            using (System.Drawing.Image image = ImageConverter.Convert(frame.Image, task.Parent.Settings.RenderFormat))
+                            SKBitmap image = ImageConverter.Convert(frame.Image, task.Parent.Settings.RenderFormat);
+                            if (image != null)
                             {
-                                if (image != null)
+                                Avalonia.Media.Imaging.Bitmap preview;
+                                try
                                 {
-                                    Avalonia.Media.Imaging.Bitmap preview = image.ToAvaloniaBitmap();
-                                    Dispatcher.UIThread.Post(() => Project.LastImage = preview);
-                                    //Clone, image is disposed when leaving the using block (previous clone is disposed by the setter)
-                                    LastImage = (System.Drawing.Image)image.Clone();
+                                    preview = image.ToAvaloniaBitmap();
                                 }
-                                else
-                                    Dispatcher.UIThread.Post(() => Project.LastImage = Statics.NoPreviewImage);
+                                catch
+                                {
+                                    image.Dispose();
+                                    throw;
+                                }
+                                Dispatcher.UIThread.Post(() => Project.LastImage = preview);
+                                //Keep the decoded frame (the previous one is disposed by the setter)
+                                LastImage = image;
                             }
+                            else
+                                Dispatcher.UIThread.Post(() => Project.LastImage = Statics.NoPreviewImage);
                         }
                         catch (Exception ex)
                         {

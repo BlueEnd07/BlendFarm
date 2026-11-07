@@ -1,9 +1,8 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using LogicReinc.BlendFarm.Client;
-using LogicReinc.BlendFarm.Meta;
 using LogicReinc.BlendFarm.Server;
 using LogicReinc.BlendFarm.Shared;
 using System;
@@ -45,8 +44,6 @@ namespace LogicReinc.BlendFarm.Windows
 
         private bool _noServer = false;
 
-        public List<Announcement> Announcements { get; set; } = new List<Announcement>();
-        public Announcement LastAnnouncement { get; set; } = null;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -120,38 +117,6 @@ This may have to do with the port being in use. Note that to discover other pcs 
             }
 
             this.InitializeComponent();
-
-            new Thread(() =>
-            {
-                try
-                {
-                    Console.WriteLine("Fetching announcements from repo");
-                    List<Announcement> announcements = Announcement.GetAnnouncements(Constants.AnnouncementUrl);
-                    if (announcements == null)
-                        throw new InvalidDataException("No valid data found");
-                    Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        Announcements = announcements?.OrderByDescending(x => x.Date).ToList() ?? new List<Announcement>();
-                        Announcement lastAnn = Announcements?.OrderByDescending(x => x.Date)?.FirstOrDefault();
-                        LastAnnouncement = lastAnn;
-                        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastAnnouncement)));
-
-                        if (lastAnn != null && lastAnn.Date > BlendFarmSettings.Instance.LastAnnouncementDate)
-                        {
-                            new AnnouncementWindow(announcements).Show();
-                            BlendFarmSettings.Instance.LastAnnouncementDate = lastAnn.Date;
-                            BlendFarmSettings.Instance.Save();
-                        }
-                    });
-                }
-                catch(Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.DarkRed;
-                    Console.WriteLine($"Failed to fetch announcements due to \"{ex.Message}\" (Attempted to fetch from {Constants.AnnouncementUrl})");
-                    Console.ResetColor();
-                }
-
-            }).Start();
         }
 
         private void InitializeComponent()
@@ -411,12 +376,6 @@ This may have to do with the port being in use. Note that to discover other pcs 
 
                 this.Close();
             }
-        }
-
-        public void OpenLastAnnouncement()
-        {
-            if(Announcements != null)
-            new AnnouncementWindow(Announcements).Show();
         }
     }
 }

@@ -13,7 +13,10 @@ namespace LogicReinc.BlendFarm
     {
         private static bool IsMac => SystemInfo.IsOS(SystemInfo.OS_MACOS) || SystemInfo.IsOS(SystemInfo.OS_MACOSARM64);
 
-        public static string BaseDirectory => AppContext.BaseDirectory;
+        /// <summary>
+        /// Portable data folder: the application directory, or LocalAppData when that is read-only
+        /// </summary>
+        public static string BaseDirectory => PortableData.Root;
 
         public static string Resolve(string path)
         {

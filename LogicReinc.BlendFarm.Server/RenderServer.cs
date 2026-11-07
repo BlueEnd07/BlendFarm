@@ -34,6 +34,15 @@ namespace LogicReinc.BlendFarm.Server
         /// </summary>
         public bool NoBroadcastListen { get; private set; }
         /// <summary>
+        /// Address the TCP listener binds to. Loopback keeps the node private to this machine,
+        /// which needs no firewall rule (and so no admin rights)
+        /// </summary>
+        public IPAddress BindAddress { get; private set; } = IPAddress.Any;
+        /// <summary>
+        /// Only reachable from this machine: no broadcasting or broadcast listening either
+        /// </summary>
+        public bool LocalOnly => IPAddress.IsLoopback(BindAddress);
+        /// <summary>
         /// If the server is active
         /// </summary>
         public bool Active { get; set; } = false;
@@ -75,11 +84,13 @@ namespace LogicReinc.BlendFarm.Server
         /// </summary>
         /// <param name="port">communication tcp port</param>
         /// <param name="broadcastPort"><=0 means no broadcasting</param>
-        public RenderServer(int port, int broadcastPort, bool noBroadcastListen)
+        /// <param name="bindAddress">address to listen on, null for all interfaces</param>
+        public RenderServer(int port, int broadcastPort, bool noBroadcastListen, IPAddress bindAddress = null)
         {
             Port = port;
             BroadcastPort = broadcastPort;
             NoBroadcastListen = noBroadcastListen;
+            BindAddress = bindAddress ?? IPAddress.Any;
             Blender = new BlenderManager();
 
             Console.WriteLine("Server OS: " + SystemInfo.GetOSName());
@@ -98,7 +109,7 @@ namespace LogicReinc.BlendFarm.Server
 
             StartRenderListener();
 
-            if (BroadcastPort > 0)
+            if (BroadcastPort > 0 && !LocalOnly)
             {
                 if (!NoBroadcastListen)
                     StartBroadcastListener();
@@ -115,7 +126,7 @@ namespace LogicReinc.BlendFarm.Server
             {
                 try
                 {
-                    TcpListener listener = new TcpListener(IPAddress.Any, Port);
+                    TcpListener listener = new TcpListener(BindAddress, Port);
                     Listener = listener;
                     listener.Start();
                     while (Active)
@@ -227,7 +238,8 @@ namespace LogicReinc.BlendFarm.Server
                     BroadcasterUDP.ExclusiveAddressUse = false;
                     BroadcasterUDP.Client.Bind(new IPEndPoint(IPAddress.Any, BroadcastPort));
                     IPEndPoint broadcastAddress = new IPEndPoint(IPAddress.Broadcast, BroadcastPort);
-                    byte[] broadcastMsg = Encoding.UTF8.GetBytes($"BLENDFARM||||{Environment.MachineName}||||{Port}");
+                    byte[] broadcastMsg = Encoding.UTF8.GetBytes($"{DiscoveryClient.ANNOUNCE_PREFIX}{Environment.MachineName}||||{Port}");
+                    StartDiscoveryResponder(BroadcasterUDP, broadcastMsg);
                     while (Active)
                     {
                         try
@@ -250,6 +262,40 @@ namespace LogicReinc.BlendFarm.Server
             _broadcastThread.Start();
         }
 
+
+        /// <summary>
+        /// Answers discovery queries (see DiscoveryClient) on the broadcast socket by sending the
+        /// announcement straight back, so clients find this node without listening on a port themselves
+        /// </summary>
+        private void StartDiscoveryResponder(UdpClient socket, byte[] announcement)
+        {
+            Thread responder = new Thread(async () =>
+            {
+                while (Active)
+                {
+                    try
+                    {
+                        UdpReceiveResult received = await socket.ReceiveAsync();
+                        if (Encoding.UTF8.GetString(received.Buffer).StartsWith(DiscoveryClient.QUERY))
+                            socket.Send(announcement, announcement.Length, received.RemoteEndPoint);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (!Active)
+                            break;
+                        //ICMP errors from earlier sends show up here on Windows, keep answering
+                        Console.WriteLine($"Discovery responder: {ex.Message}");
+                        Thread.Sleep(1000);
+                    }
+                }
+            });
+            responder.IsBackground = true;
+            responder.Start();
+        }
 
         /// <summary>
         /// Stops all listeners and threads
