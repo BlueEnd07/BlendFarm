@@ -11,7 +11,7 @@ using static LogicReinc.BlendFarm.Windows.RenderWindow;
 
 namespace LogicReinc.BlendFarm
 {
-    public class BlendFarmSettings
+    public partial class BlendFarmSettings
     {
         private static string FILE_NAME = "ClientSettings";
 

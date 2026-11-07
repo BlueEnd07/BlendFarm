@@ -354,6 +354,7 @@ namespace LogicReinc.BlendFarm.Windows
             this.InitializeComponent();
             InitializeWindowLayout();
             InitializePreviewFeatures();
+            InitializeUserInputExtras();
             StartDiscoveryTracking();
             _ = StartAutomaticNodeSetup();
         }
@@ -926,7 +927,7 @@ namespace LogicReinc.BlendFarm.Windows
                 return;
 
             ActivityLog.Add(new RenderActivityLogEntry(message, logType));
-            while (ActivityLog.Count > 150)
+            while (ActivityLog.Count > ActivityLogFilter.MaxEntries)
                 ActivityLog.RemoveAt(0);
 
             _activityLogList?.ScrollIntoView(ActivityLog.LastOrDefault());
@@ -2493,6 +2494,7 @@ namespace LogicReinc.BlendFarm.Windows
             BlendFarmSettings settings = BlendFarmSettings.Instance;
             if (settings.NotificationsEnabled)
                 ShowToast(info);
+            DesktopNotifyRenderCompleted(info);
             if (settings.WebhookEnabled && !string.IsNullOrWhiteSpace(settings.WebhookUrl))
                 _ = WebhookNotifier.PostAsync(settings.WebhookUrl, info); //fire-and-forget; never throws
         }
