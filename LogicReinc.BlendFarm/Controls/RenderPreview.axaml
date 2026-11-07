@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="LogicReinc.BlendFarm.Controls.RenderPreview"
+             Focusable="True" ClipToBounds="True" Background="Transparent">
+  <UserControl.Styles>
+    <Style Selector="Border#toolbar Button, Border#toolbar ToggleButton">
+      <Setter Property="Margin" Value="0,2,5,2"/>
+      <Setter Property="Padding" Value="9,3"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="MinHeight" Value="24"/>
+      <Setter Property="Background" Value="{DynamicResource BlendFarmButtonBrush}"/>
+    </Style>
+    <Style Selector="Border#toolbar ToggleButton:checked /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource BlendFarmAccentBrush}"/>
+    </Style>
+  </UserControl.Styles>
+  <Border x:Name="toolbar" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,12,14" Padding="5" CornerRadius="6" BorderThickness="1" Background="#E61E1E1E" BorderBrush="{DynamicResource BlendFarmSoftBorderBrush}">
+    <WrapPanel Orientation="Horizontal">
+      <TextBlock x:Name="zoomText" Text="100%" MinWidth="42" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="4,0,7,0"/>
+      <Button x:Name="fitButton" Content="Fit" ToolTip.Tip="Fit the whole image in the view (double-click the image or press F)"/>
+      <Button x:Name="actualButton" Content="1:1" ToolTip.Tip="Show the image at 100% (one image pixel per screen pixel, press 1)"/>
+      <ToggleButton x:Name="compareButton" Content="Compare" IsVisible="False" ToolTip.Tip="Compare the previous render with the current one (drag the slider)"/>
+      <Button x:Name="historyButton" Content="History" ToolTip.Tip="Browse previous renders"/>
+    </WrapPanel>
+  </Border>
+</UserControl>

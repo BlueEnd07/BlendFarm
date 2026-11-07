@@ -125,13 +125,24 @@ namespace LogicReinc.BlendFarm.Shared
 
         public async Task<bool> Render()
         {
+            try { return await RenderInternal(); }
+            finally
+            {
+                if (this is AnimationTask animation) animation.FinishFailedFrameReport(Cancelled);
+            }
+        }
+
+        private async Task<bool> RenderInternal()
+        {
             if (Consumed)
                 throw new InvalidOperationException("Already started render..");
             Consumed = true;
             if (Cancelled)
                 return false;
 
-            List<RenderNode> pool = Nodes.Where(x => x.Connected).ToList();
+            List<RenderNode> pool = Nodes.Where(x => x.Connected && x.IsEnabled).ToList();
+            if (pool.Count == 0)
+                throw new InvalidOperationException(NodeConnectionPolicy.NoEnabledNodes);
             List<RenderNode> validNodes = new List<RenderNode>();
 
             foreach (RenderNode node in pool)
@@ -474,6 +485,12 @@ namespace LogicReinc.BlendFarm.Shared
         protected internal void NotifySubTaskFinished(RenderNode node, RenderSubTask task)
         {
             OnSubTaskFinished?.Invoke(node, task);
+        }
+
+        internal void NotifySubTaskFailed(RenderNode node, RenderSubTask task)
+        {
+            if (this is AnimationTask animation)
+                animation.FailedFrames.RecordFailure(task.Frame, node?.Name);
         }
 
         public static RenderTask GetImageRenderTask(List<RenderNode> nodes, string session, string version, long fileId, RenderManagerSettings settings = null)

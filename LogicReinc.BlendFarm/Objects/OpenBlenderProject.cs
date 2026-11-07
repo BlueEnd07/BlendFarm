@@ -10,7 +10,7 @@ using System.Text;
 namespace LogicReinc.BlendFarm.Objects
 {
 
-    public class OpenBlenderProject : INotifyPropertyChanged
+    public partial class OpenBlenderProject : INotifyPropertyChanged
     {
         public string SessionID { get; set; } = Guid.NewGuid().ToString();
         public string FileID { get; set; } = Guid.NewGuid().ToString();
@@ -162,8 +162,13 @@ namespace LogicReinc.BlendFarm.Objects
             Samples = settings?.Samples ?? 32;
             OutputTemplate = string.IsNullOrEmpty(settings?.OutputTemplate) ? "#" : settings.OutputTemplate;
             SkipExistingFrames = settings?.SkipExistingFrames ?? false;
+            FrameStep = settings?.FrameStep ?? 1;
+            FrameList = settings?.FrameList ?? "";
+            EncodeMp4 = settings?.EncodeMp4 ?? false;
+            EncodingFPS = settings?.EncodingFPS ?? 0;
         }
-        public void SaveAsDefault()
+        /// <summary>Stores the current render settings as the default for new projects. Returns false if the settings file couldn't be written.</summary>
+        public bool SaveAsDefault()
         {
             BlendFarmSettings.Instance.UISettings = new UISettings()
             {
@@ -178,9 +183,14 @@ namespace LogicReinc.BlendFarm.Objects
                 FPS = FPS,
                 Samples = Samples,
                 OutputTemplate = OutputTemplate,
-                SkipExistingFrames = SkipExistingFrames
+                SkipExistingFrames = SkipExistingFrames,
+                FrameStep = FrameStep,
+                FrameList = FrameList,
+                EncodeMp4 = EncodeMp4,
+                EncodingFPS = EncodingFPS
             };
-            BlendFarmSettings.Instance.Save();
+            //Runs from a click handler: a failing write (read-only folder, disk full) must not escape
+            return BlendFarmSettings.Instance.TrySave();
         }
 
 
@@ -188,6 +198,10 @@ namespace LogicReinc.BlendFarm.Objects
         {
             return new BlendFarmSettings.UIProjectSettings()
             {
+                FrameStep = FrameStep,
+                FrameList = FrameList,
+                EncodeMp4 = EncodeMp4,
+                EncodingFPS = EncodingFPS,
                 UseNetworked = UseNetworkedPath,
                 NetworkPathWindows = NetworkPathWindows,
                 NetworkPathLinux = NetworkPathLinux,
@@ -196,6 +210,10 @@ namespace LogicReinc.BlendFarm.Objects
         }
         public void ApplyProjectSettings(BlendFarmSettings.UIProjectSettings sets)
         {
+            FrameStep = sets.FrameStep;
+            FrameList = sets.FrameList ?? "";
+            EncodeMp4 = sets.EncodeMp4;
+            EncodingFPS = sets.EncodingFPS;
             UseNetworkedPath = sets.UseNetworked;
             NetworkPathWindows = sets.NetworkPathWindows ?? NetworkPathWindows;
             NetworkPathLinux = sets.NetworkPathLinux ?? NetworkPathLinux;
@@ -211,6 +229,10 @@ namespace LogicReinc.BlendFarm.Objects
 
         public class UISettings
         {
+            public int FrameStep { get; set; } = 1;
+            public string FrameList { get; set; } = "";
+            public bool EncodeMp4 { get; set; }
+            public int EncodingFPS { get; set; }
             public int FrameStart { get; set; }
             public int FrameEnd { get; set; }
             public int RenderHeight { get; set; }

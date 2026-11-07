@@ -17,7 +17,7 @@ namespace LogicReinc.BlendFarm.Windows
         {
             InitializeComponent();
             Title = title;
-            Image image = this.Find<Image>("image");
+            Controls.RenderPreview image = this.Find<Controls.RenderPreview>("image");
             image.Source = img;
         }
 

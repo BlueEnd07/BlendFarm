@@ -11,7 +11,7 @@ using static LogicReinc.BlendFarm.Windows.RenderWindow;
 
 namespace LogicReinc.BlendFarm
 {
-    public class BlendFarmSettings
+    public partial class BlendFarmSettings
     {
         private static string FILE_NAME = "ClientSettings";
 
@@ -57,6 +57,7 @@ namespace LogicReinc.BlendFarm
         public bool Option_UseAssetsSync { get; set; }
         public bool Option_ConnectLocal { get; set; } = true;
         public bool Option_ImportSettings { get; set; } = true;
+        public bool AutoReconnectNodes { get; set; } = true;
 
         /// <summary>
         /// Render-completion notification preferences
@@ -69,6 +70,25 @@ namespace LogicReinc.BlendFarm
         /// Persisted render queue (only items that were still queued when saved)
         /// </summary>
         public List<QueueItemDTO> RenderQueue { get; set; } = new List<QueueItemDTO>();
+        public DateTimeOffset? QueueScheduledStart { get; set; }
+        public bool QueuePaused { get; set; }
+        public string FfmpegPath { get; set; } = "";
+
+        /// <summary>Main-window layout in logical units (position uses desktop pixels).</summary>
+        public RenderWindowLayout WindowLayout { get; set; } = new RenderWindowLayout();
+        public Dictionary<string, bool> ExpandedRenderSections { get; set; } = new Dictionary<string, bool>();
+
+        public class RenderWindowLayout
+        {
+            public double Width { get; set; } = 1400;
+            public double Height { get; set; } = 975;
+            public int? X { get; set; }
+            public int? Y { get; set; }
+            public bool Maximized { get; set; }
+            public double LeftWidth { get; set; } = 380;
+            public double RightWidth { get; set; } = 460;
+            public double ActivityHeight { get; set; } = 280;
+        }
 
 
         public void ApplyProjectSettings(string fileName, UIProjectSettings settings)
@@ -151,6 +171,7 @@ namespace LogicReinc.BlendFarm
 
         public class HistoryClient
         {
+            public bool IsEnabled { get; set; } = true;
             public string Name { get; set; }
             public string Address { get; set; }
 
@@ -175,6 +196,10 @@ namespace LogicReinc.BlendFarm
 
         public class UIProjectSettings
         {
+            public int FrameStep { get; set; } = 1;
+            public string FrameList { get; set; } = "";
+            public bool EncodeMp4 { get; set; }
+            public int EncodingFPS { get; set; }
             public bool UseNetworked { get; set; }
             public string NetworkPathWindows { get; set; }
             public string NetworkPathLinux { get; set; }

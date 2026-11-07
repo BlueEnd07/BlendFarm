@@ -21,7 +21,7 @@ namespace LogicReinc.BlendFarm.Windows
     /// <summary>
     /// Assumes only one on startup
     /// </summary>
-    public class ProjectWindow : Window, INotifyPropertyChanged
+    public partial class ProjectWindow : Window, INotifyPropertyChanged
     {
         static List<BlenderVersion> versions = new List<BlenderVersion>();
 
@@ -135,6 +135,8 @@ This may have to do with the port being in use. Note that to discover other pcs 
             useAssetSync = this.FindControl<CheckBox>("useAssetSync");
             connectLocal = this.FindControl<CheckBox>("connectLocal");
             importSettings = this.FindControl<CheckBox>("importSettings");
+
+            InitializeFileDrop();
 
             useAssetSync.IsEnabled = false;
             useAssetSync.IsChecked = false;

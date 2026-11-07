@@ -14,6 +14,17 @@ namespace LogicReinc.BlendFarm.Objects
         public int Frames { get; set; } = 1;
         public string FrameFormat { get; set; } = "#.png";
         public string SaveTo { get; set; }
+        public bool Animation { get; set; }
+        public int[] FrameNumbers { get; set; }
+        public int FrameStep { get; set; } = 1;
+        public string FrameList { get; set; } = "";
+        public int ResolutionScale { get; set; } = 100;
+        public bool EncodeMp4 { get; set; }
+        public int EncodingFPS { get; set; } = 24;
+        public bool? SkipExistingFrames { get; set; }
+        public System.DateTime? OutputTimestamp { get; set; }
+        public int? OutputFrameStart { get; set; }
+        public int? OutputFrameEnd { get; set; }
 
         //Enough project association to rebuild an OpenBlenderProject on load.
         public bool UseNetworkedPath { get; set; }

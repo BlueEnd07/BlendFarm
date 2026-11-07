@@ -1,4 +1,5 @@
 ﻿using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
@@ -57,15 +58,30 @@ namespace LogicReinc.BlendFarm
         {
             if (old == null || IsSharedImage(old))
                 return;
-            Dispatcher.UIThread.Post(() =>
-            {
-                try
-                {
-                    old.Dispose();
-                }
-                catch { }
-            }, DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(() => _bitmapGuard.Dispose(old), DispatcherPriority.Background);
         }
+
+        //Background work that encodes a bitmap holds a lease: the disposal waits for it (see DisposalGuard)
+        private static readonly LogicReinc.BlendFarm.Objects.DisposalGuard _bitmapGuard = new LogicReinc.BlendFarm.Objects.DisposalGuard(
+            dispose => Dispatcher.UIThread.Post(dispose, DispatcherPriority.Background));
+
+        /// <summary>Brush from the application's theme resources (App.axaml / MainStyle.axaml), with a fallback colour for hosts without them (tests).</summary>
+        public static Avalonia.Media.IBrush ThemeBrush(string key, string fallbackColor)
+        {
+            try
+            {
+                if (Application.Current?.FindResource(key) is Avalonia.Media.IBrush brush)
+                    return brush;
+            }
+            catch { }
+            return new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse(fallbackColor));
+        }
+
+        /// <summary>
+        /// Keeps a UI bitmap alive for work on another thread (eg. encoding it): replacing it in the project only
+        /// postpones the disposal until the lease is disposed. Call on the UI thread while the bitmap is still current.
+        /// </summary>
+        public static IDisposable LeaseBitmap(Bitmap bitmap) => IsSharedImage(bitmap) ? _bitmapGuard.Acquire(null) : _bitmapGuard.Acquire(bitmap);
 
         /// <summary>
         /// Saves an image using the format matching its extension (png, jpg, webp, bmp).

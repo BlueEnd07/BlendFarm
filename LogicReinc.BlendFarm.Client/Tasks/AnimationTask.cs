@@ -1,6 +1,7 @@
 ﻿using LogicReinc.BlendFarm.Shared;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace LogicReinc.BlendFarm.Client.Tasks
 {
@@ -11,6 +12,8 @@ namespace LogicReinc.BlendFarm.Client.Tasks
     {
         public int StartFrame { get; set; }
         public int EndFrame { get; set; }
+        public IReadOnlyList<int> SelectedFrames { get; set; }
+        public FailedFrameReport FailedFrames { get; } = new FailedFrameReport();
         /// <summary>
         /// Frames that are already rendered and should not be rendered again (resume)
         /// </summary>
@@ -32,7 +35,7 @@ namespace LogicReinc.BlendFarm.Client.Tasks
         protected override IReadOnlyList<RenderSubTask> CreateSubTasks()
         {
             List<RenderSubTask> tasks = new List<RenderSubTask>();
-            for (int i = StartFrame; i <= EndFrame; i++)
+            foreach (int i in SelectedFrames ?? AnimationFrameSelection.Parse(StartFrame, EndFrame))
                 if (!SkipFrames.Contains(i))
                     tasks.Add(new RenderSubTask(this, 0, 1, 0, 1, i));
             return tasks;
@@ -41,6 +44,17 @@ namespace LogicReinc.BlendFarm.Client.Tasks
         protected override void HandleResult(RenderSubTask task, byte[] data)
         {
             OnFrameResult?.Invoke(task, new SubTaskResult(data));
+            FailedFrames.RecordSuccess(task.Frame);
+        }
+
+        public void FinishFailedFrameReport(bool cancelled)
+        {
+            FailedFrames.Finish((SelectedFrames ?? AnimationFrameSelection.Parse(StartFrame, EndFrame)).Where(frame => !SkipFrames.Contains(frame)), cancelled);
+        }
+
+        protected override void EndResults(bool succeeded, bool cancelled)
+        {
+            FinishFailedFrameReport(cancelled);
         }
     }
 }

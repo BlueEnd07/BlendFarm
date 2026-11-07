@@ -19,8 +19,56 @@ namespace LogicReinc.BlendFarm.Tests
     /// Drives the render scheduler with fake nodes, no Blender or network needed
     /// </summary>
     [TestClass]
-    public class SchedulerTests
+    public partial class SchedulerTests
     {
+        [TestMethod]
+        public async Task DisabledNode_DoesNotReceiveScheduledFrames()
+        {
+            var disabled = new FakeNode("disabled", 1) { IsEnabled = false };
+            var enabled = new FakeNode("enabled", 2);
+            var frames = new ConcurrentDictionary<int, int>();
+            var task = CreateAnimation(new List<RenderNode> { disabled, enabled }, 1, 8, frames);
+            Assert.IsTrue(await WithTimeout(task.Render()));
+            Assert.AreEqual(0, disabled.Requests);
+            AssertEachFrameOnce(frames, 1, 8);
+        }
+
+        [TestMethod]
+        public async Task AllDisabledNodes_FailImmediatelyWithHelpfulMessage()
+        {
+            var disabled = new FakeNode("disabled", 1) { IsEnabled = false };
+            var frames = new ConcurrentDictionary<int, int>();
+            var task = CreateAnimation(new List<RenderNode> { disabled }, 1, 8, frames);
+            var error = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => WithTimeout(task.Render()));
+            Assert.AreEqual(NodeConnectionPolicy.NoEnabledNodes, error.Message);
+            Assert.AreEqual(0, disabled.Requests);
+        }
+
+        [TestMethod]
+        public async Task NodeDisabledDuringRender_TakesNoFurtherWork()
+        {
+            var disabled = new FakeNode("disable-during-render", 2);
+            var enabled = new FakeNode("enabled", 4);
+            var frames = new ConcurrentDictionary<int, int>();
+            var task = CreateAnimation(new List<RenderNode> { disabled, enabled }, 1, 20, frames,
+                new RenderManagerSettings { OutputWidth = 64, OutputHeight = 32, DuplicateSlowTasks = false });
+            task.OnSubTaskStarted += (node, subtask) => { if (node == disabled) disabled.IsEnabled = false; };
+            Assert.IsTrue(await WithTimeout(task.Render()));
+            Assert.AreEqual(1, disabled.Requests);
+            AssertEachFrameOnce(frames, 1, 20);
+        }
+
+        [TestMethod]
+        public async Task SchedulerRejectsDisabledNodesIndependentlyOfRenderTask()
+        {
+            var disabled = new FakeNode("disabled", 1) { IsEnabled = false };
+            var frames = new ConcurrentDictionary<int, int>();
+            var owner = CreateAnimation(new List<RenderNode> { disabled }, 1, 1, frames);
+            var scheduler = new RenderScheduler(owner, new[] { new RenderSubTask(owner, 0, 1, 0, 1, 1) }, new[] { disabled }, false, false);
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => scheduler.Run(CancellationToken.None));
+            Assert.AreEqual(0, disabled.Requests);
+        }
+
         private const string Version = "3.6.0";
         private const string Session = "session";
 
