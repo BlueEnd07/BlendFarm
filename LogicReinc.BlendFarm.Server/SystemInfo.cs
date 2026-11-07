@@ -293,9 +293,8 @@ namespace LogicReinc.BlendFarm.Server
                 switch (GetOSName())
                 {
                     case OS_WINDOWS64:
-                        return path;
                     case OS_LINUX64:
-                        return path;
+                        return PortableData.Resolve(path);
                     case OS_MACOS:
                     case OS_MACOSARM64:
                         string userDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

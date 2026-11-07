@@ -38,6 +38,10 @@ namespace LogicReinc.BlendFarm.Server
         static void Main(string[] args)
         {
             StartIntercepting();
+            //Portable: all data next to the exe (or in LocalAppData if that folder is read-only),
+            //whatever folder or shortcut the server was started from
+            PortableData.UseAsWorkingDirectory();
+            Console.WriteLine($"Data folder: {PortableData.Root}");
             try
             {
                 //List IP addreses of this machine
@@ -68,6 +72,10 @@ namespace LogicReinc.BlendFarm.Server
 
             Server.Start();
             Console.WriteLine("Server Started");
+            Console.WriteLine($"Other machines need to reach TCP {ServerSettings.Instance.Port} (and UDP {ServerSettings.Instance.BroadcastPort} for discovery).");
+            Console.WriteLine("If Windows Firewall blocks them and you have no admin rights, an admin can allow it once with:");
+            Console.WriteLine($"  netsh advfirewall firewall add rule name=\"BlendFarm Server\" dir=in action=allow protocol=TCP localport={ServerSettings.Instance.Port}");
+            Console.WriteLine($"  netsh advfirewall firewall add rule name=\"BlendFarm Discovery\" dir=in action=allow protocol=UDP localport={ServerSettings.Instance.BroadcastPort}");
 
 
             //ReadLines in main loop removed for deployment as this can freeze background threads under specific conditions

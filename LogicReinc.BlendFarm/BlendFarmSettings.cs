@@ -27,6 +27,12 @@ namespace LogicReinc.BlendFarm
         /// </summary>
         public bool ListenForBroadcasts { get; set; } = true;
 
+        /// <summary>
+        /// Lets other machines use this computer's built-in render node. Off by default: the built-in
+        /// node then only listens on localhost, which Windows Firewall allows without admin rights.
+        /// </summary>
+        public bool ShareLocalNode { get; set; } = false;
+
         public OpenBlenderProject.UISettings UISettings { get; set; } = null;
 
         /// <summary>
