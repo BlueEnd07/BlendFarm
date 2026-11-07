@@ -60,9 +60,10 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="0.10.15" />
     <PackageReference Include="Avalonia.Desktop" Version="0.10.15" />
-    <PackageReference Include="runtime.linux-x64.CoreCompat.System.Drawing" Version="1.0.0-beta009" />
-    <PackageReference Include="runtime.osx.10.10-x64.CoreCompat.System.Drawing" Version="5.8.64" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.0" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
+    <!-- Avalonia.Skia pulls in SkiaSharp.NativeAssets.Linux (2.88.1-preview), whose libSkiaSharp.so would win over the NoDependencies one -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.9" ExcludeAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\LogicReinc.BlendFarm.Client\LogicReinc.BlendFarm.Client.csproj" />

@@ -1,7 +1,6 @@
 ﻿using LogicReinc.BlendFarm.Shared;
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Text;
 
 namespace LogicReinc.BlendFarm.Client

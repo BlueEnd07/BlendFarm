@@ -16,12 +16,12 @@ using LogicReinc.BlendFarm.Objects;
 using LogicReinc.BlendFarm.Server;
 using LogicReinc.BlendFarm.Shared;
 using LogicReinc.BlendFarm.Shared.Communication.RenderNode;
+using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -458,7 +458,7 @@ namespace LogicReinc.BlendFarm.Windows
             {
                 if (b.Key == Avalonia.Input.Key.Delete)
                 {
-                    using (System.Drawing.Bitmap empty = new System.Drawing.Bitmap(1, 1))
+                    using (SKBitmap empty = TileCompositor.CreateResult(1, 1))
                         CurrentProject.LastImage = empty.ToAvaloniaBitmap();
                     RefreshCurrentProject();
                     _lastRenderTime.Text = "";
@@ -1400,35 +1400,20 @@ namespace LogicReinc.BlendFarm.Windows
                 {
                     watch.Start();
 
-                    //Coalesce tile previews: skip a conversion while the previous one hasn't been shown yet
-                    int previewPending = 0;
+                    //Coalesce tile previews: skip a conversion while the previous one hasn't been shown yet,
+                    //pixels are copied off the UI thread
+                    ResultPreview preview = new ResultPreview((bitmap) =>
+                    {
+                        //Apply image to canvas
+                        currentProject.LastImage = bitmap;
+                        if (CurrentProject == currentProject)
+                            RaisePropertyChanged(CurrentProjectProperty, null, CurrentProject);
+
+                        UpdateRenderTiming(watch, task?.Progress ?? 0);
+                    });
 
                     //Create Task
-                    task = Manager.GetImageTask(currentProject.BlendFile, settings, (subTask, updated) =>
-                    {
-                        if (Interlocked.CompareExchange(ref previewPending, 1, 0) != 0)
-                            return;
-                        //Apply image to canvas
-                        Dispatcher.UIThread.InvokeAsync(() =>
-                        {
-                            try
-                            {
-                                currentProject.LastImage = updated.ToAvaloniaBitmap();
-                                if (CurrentProject == currentProject)
-                                    RaisePropertyChanged(CurrentProjectProperty, null, CurrentProject);
-
-                                UpdateRenderTiming(watch, task?.Progress ?? 0);
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine("Failed to update render preview: " + ex.Message);
-                            }
-                            finally
-                            {
-                                Interlocked.Exchange(ref previewPending, 0);
-                            }
-                        });
-                    });
+                    task = Manager.GetImageTask(currentProject.BlendFile, settings, preview.OnResultUpdated);
                     RenderTask localTask = task;
                     await Dispatcher.UIThread.InvokeAsync(() => currentProject.SetRenderTask(localTask));
                     AttachRenderTaskActivityLogging(task);
@@ -1458,12 +1443,29 @@ namespace LogicReinc.BlendFarm.Windows
                     bool cancelled = task.Cancelled || _renderCancelRequested;
                     bool completed = rendered && !cancelled && finalImage != null;
 
+                    //Copy the final image off the UI thread, the UI only keeps its own copy
+                    Bitmap finalBitmap = null;
+                    if (finalImage != null)
+                    {
+                        RenderTask finishedTask = task;
+                        try
+                        {
+                            finalBitmap = finalImage.ToAvaloniaBitmap(finishedTask.ResultLock);
+                        }
+                        finally
+                        {
+                            lock (finishedTask.ResultLock)
+                                finalImage.Dispose();
+                        }
+                    }
+
                     //Finalize
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        if (finalImage != null)
+                        preview.Close();
+                        if (finalBitmap != null)
                         {
-                            currentProject.LastImage = finalImage.ToAvaloniaBitmap();
+                            currentProject.LastImage = finalBitmap;
                             if (currentProject == CurrentProject)
                                 RaisePropertyChanged(CurrentProjectProperty, null, CurrentProject);
                         }
@@ -1628,18 +1630,27 @@ namespace LogicReinc.BlendFarm.Windows
                         byte[] frameBytes = frame.Image;
                         string renderFormat = task.Parent.Settings.RenderFormat;
 
+                        //Decode and copy the preview here, off the UI thread
+                        Bitmap framePreview = null;
+                        Exception previewException = null;
+                        try
+                        {
+                            using (SKBitmap img = ImageConverter.Convert(frameBytes, renderFormat))
+                                framePreview = img?.ToAvaloniaBitmap();
+                        }
+                        catch (Exception ex)
+                        {
+                            previewException = ex;
+                        }
+
                         //Apply image to canvas
                         _ = Dispatcher.UIThread.InvokeAsync(() =>
                         {
                             try
                             {
-                                using (System.Drawing.Image img = ImageConverter.Convert(frameBytes, renderFormat))
-                                {
-                                    if (img != null)
-                                        currentProject.LastImage = img.ToAvaloniaBitmap();
-                                    else
-                                        currentProject.LastImage = Statics.NoPreviewImage;
-                                }
+                                if (previewException != null)
+                                    throw previewException;
+                                currentProject.LastImage = framePreview ?? Statics.NoPreviewImage;
                                 if (currentProject == CurrentProject)
                                     RaisePropertyChanged(CurrentProjectProperty, null, CurrentProject);
                             }

@@ -7,7 +7,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing;
+using SkiaSharp;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -64,13 +64,20 @@ namespace LogicReinc.BlendFarm.Shared
         public double Progress { get; set; }
 
         /// <summary>
-        /// Event whenever a tile has finished rendering
+        /// Event whenever a tile has finished rendering.
+        /// The tile bitmap is disposed once the handlers return, copy it if it's needed afterwards.
         /// </summary>
-        public event Action<RenderSubTask, Image> OnTileProcessed;
+        public event Action<RenderSubTask, SKBitmap> OnTileProcessed;
         /// <summary>
-        /// Event whenever the result bitmap is changed
+        /// Event whenever the result bitmap is changed.
+        /// Tiles are drawn into it from multiple threads, read it while holding ResultLock.
         /// </summary>
-        public event Action<RenderSubTask, Image> OnResultUpdated;
+        public event Action<RenderSubTask, SKBitmap> OnResultUpdated;
+
+        /// <summary>
+        /// Serialises drawing into, and reading from, the composed result bitmap
+        /// </summary>
+        public object ResultLock { get; } = new object();
         /// <summary>
         /// Event whenever progress is made
         /// </summary>
@@ -700,47 +707,72 @@ namespace LogicReinc.BlendFarm.Shared
             return new SubTaskResult(result);
         }
 
-        protected void ProcessTile(RenderSubTask task, SubTaskResult tresult, ref Graphics g, ref Bitmap result, ref object drawLock, bool dontDraw = false)
+        protected void ProcessTile(RenderSubTask task, SubTaskResult tresult, ref SKCanvas canvas, ref SKBitmap result, bool dontDraw = false)
         {
-            using(Image img = ImageConverter.Convert(tresult.Image, task.Parent.Settings.RenderFormat))
+            ProcessTile(task, tresult.Image, ref canvas, ref result, dontDraw);
+        }
+        /// <summary>
+        /// Decodes an encoded tile and processes it (see ProcessTile)
+        /// </summary>
+        protected void ProcessTile(RenderSubTask task, byte[] encodedTile, ref SKCanvas canvas, ref SKBitmap result, bool dontDraw = false)
+        {
+            using (SKBitmap img = ImageConverter.Convert(encodedTile, task.Parent.Settings.RenderFormat))
             {
-                ProcessTile(task, img, ref g, ref result, ref drawLock, dontDraw);
+                if (img == null && !Cancelled)
+                    throw new InvalidOperationException("Received tile could not be decoded");
+                ProcessTile(task, img, ref canvas, ref result, dontDraw);
             }
         }
         /// <summary>
-        /// Handles an incoming tile and trigger the events as well as drawing the tile to an image/graphics
+        /// Handles an incoming tile and trigger the events as well as drawing the tile to the result bitmap.
+        /// Drawing is serialised with ResultLock, SKBitmap/SKCanvas are not thread-safe.
         /// </summary>
-        protected void ProcessTile(RenderSubTask task, Image part, ref Graphics g, ref Bitmap result, ref object drawLock, bool dontDraw = false)
+        protected void ProcessTile(RenderSubTask task, SKBitmap part, ref SKCanvas canvas, ref SKBitmap result, bool dontDraw = false)
         {
             if (Cancelled)
                 return;
 
             if (!dontDraw)
             {
-                lock (drawLock)
+                lock (ResultLock)
                 {
                     if (result == null)
                     {
-                        result = new Bitmap(part.Width, part.Height);
-                        g = Graphics.FromImage(result);
+                        result = TileCompositor.CreateResult(part.Width, part.Height);
+                        canvas = new SKCanvas(result);
                     }
-                    if (task.Crop)
-                    {
-                        int tileWidth = ((int)((task.X2 - task.X) * task.Parent.Settings.OutputWidth));
-                        int tileHeight = ((int)((task.Y2 - task.Y) * task.Parent.Settings.OutputHeight));
-                        int posX = (int)(task.X * task.Parent.Settings.OutputWidth);
-                        int posY = (int)(task.Parent.Settings.OutputHeight - task.Y * task.Parent.Settings.OutputHeight - tileHeight);
-
-                        g.DrawImage(part, posX, posY, tileWidth, tileHeight);
-                    }
-                    else
-                        g.DrawImage(part, 0, 0, task.Parent.Settings.OutputWidth, task.Parent.Settings.OutputHeight);
+                    SKRectI area = (task.Crop)
+                        ? TileCompositor.GetTileRect(task.X, task.X2, task.Y, task.Y2, task.Parent.Settings.OutputWidth, task.Parent.Settings.OutputHeight)
+                        : SKRectI.Create(0, 0, task.Parent.Settings.OutputWidth, task.Parent.Settings.OutputHeight);
+                    TileCompositor.DrawTile(canvas, part, area);
+                    canvas.Flush();
                 }
-            if (OnResultUpdated != null)
-                OnResultUpdated(task, result);
+                OnResultUpdated?.Invoke(task, result);
             }
-            if (OnTileProcessed != null)
-                OnTileProcessed(task, part);
+            OnTileProcessed?.Invoke(task, part);
+        }
+
+        /// <summary>
+        /// True if the subtask renders the entire frame (single tile)
+        /// </summary>
+        protected static bool IsWholeFrame(RenderSubTask task)
+        {
+            return task.X <= 0 && task.Y <= 0 && task.X2 >= 1 && task.Y2 >= 1;
+        }
+
+        /// <summary>
+        /// Disposes the canvas (and the result, unless it is handed out) under ResultLock,
+        /// so a preview still reading the result doesn't see it disposed halfway
+        /// </summary>
+        protected void ReleaseResult(ref SKCanvas canvas, SKBitmap result, bool disposeResult)
+        {
+            lock (ResultLock)
+            {
+                canvas?.Dispose();
+                canvas = null;
+                if (disposeResult)
+                    result?.Dispose();
+            }
         }
 
         //Util

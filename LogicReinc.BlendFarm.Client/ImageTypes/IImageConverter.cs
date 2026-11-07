@@ -1,6 +1,6 @@
-﻿using System;
+﻿using SkiaSharp;
+using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -12,21 +12,26 @@ namespace LogicReinc.BlendFarm.Client.ImageTypes
     {
         public static DefaultImageConverter Default { get; } = new DefaultImageConverter();
 
-        public static Image Convert(byte[] bytes, string format)
+        /// <summary>
+        /// Decodes render output of the given Blender format, null if the format can't be decoded
+        /// </summary>
+        public static SKBitmap Convert(byte[] bytes, string format)
         {
+            if (bytes == null)
+                return null;
             using (MemoryStream str = new MemoryStream(bytes))
                 return Convert(str, format);
         }
-        public static Image Convert(Stream str, string format)
+        public static SKBitmap Convert(Stream str, string format)
         {
-            format = format.ToUpper().Trim();
+            format = (format ?? "").ToUpper().Trim();
             switch (format)
             {
                 case "":
                 case "BMP":
                 case "PNG":
                 case "JPEG":
-                case "TIFF":
+                case "TIFF": //Not decodable by Skia, results in null (no preview)
                     return Default.FromStream(str);
                 default:
                     return null;
@@ -36,6 +41,6 @@ namespace LogicReinc.BlendFarm.Client.ImageTypes
 
     public interface IImageConverter
     {
-        Image FromStream(Stream str);
+        SKBitmap FromStream(Stream str);
     }
 }

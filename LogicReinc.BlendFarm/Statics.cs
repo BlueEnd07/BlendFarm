@@ -1,8 +1,11 @@
-﻿using Avalonia.Media.Imaging;
+﻿using Avalonia;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Threading;
+using LogicReinc.BlendFarm.Client.ImageTypes;
+using SkiaSharp;
 using System;
 using System.Collections.Generic;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -22,14 +25,13 @@ namespace LogicReinc.BlendFarm
                 {
                     if (_noPreviewImage == null)
                     {
-                        using (System.Drawing.Bitmap bmp = new System.Drawing.Bitmap(700, 200))
+                        using (SKBitmap bmp = TileCompositor.CreateResult(700, 200))
                         {
-                            using (System.Drawing.Graphics g = System.Drawing.Graphics.FromImage(bmp))
-                            using (System.Drawing.Font font = new System.Drawing.Font("Arial", 16))
-                            using (System.Drawing.SolidBrush brush = new System.Drawing.SolidBrush(System.Drawing.Color.Gray))
+                            using (SKCanvas canvas = new SKCanvas(bmp))
+                            using (SKPaint paint = new SKPaint() { Color = SKColors.Gray, TextSize = 21, IsAntialias = true })
                             {
-                                g.DrawString("Could not generate Preview\n(Some Render Formats do not support preview)",
-                                    font, brush, 5, 5);
+                                canvas.DrawText("Could not generate Preview", 5, 26, paint);
+                                canvas.DrawText("(Some Render Formats do not support preview)", 5, 52, paint);
                             }
                             _noPreviewImage = bmp.ToAvaloniaBitmap();
                         }
@@ -66,39 +68,16 @@ namespace LogicReinc.BlendFarm
         }
 
         /// <summary>
-        /// Image format matching the file extension, PNG for anything System.Drawing can't encode
+        /// Saves an image using the format matching its extension (png, jpg, webp, bmp).
+        /// Other extensions get originalData (the node's own output of a whole frame) if available, otherwise PNG data.
         /// </summary>
-        public static ImageFormat GetImageFormatForPath(string path)
+        public static void SaveImage(SKBitmap image, string path, byte[] originalData = null)
         {
-            string ext = Path.GetExtension(path ?? "")?.TrimStart('.').ToLowerInvariant();
-            switch (ext)
-            {
-                case "jpg":
-                case "jpeg":
-                    return ImageFormat.Jpeg;
-                case "bmp":
-                    return ImageFormat.Bmp;
-                case "tif":
-                case "tiff":
-                    return ImageFormat.Tiff;
-                case "gif":
-                    return ImageFormat.Gif;
-                default:
-                    return ImageFormat.Png;
-            }
-        }
-
-        /// <summary>
-        /// Saves an image using the format matching its extension (Image.Save(path) always writes PNG)
-        /// </summary>
-        public static void SaveImage(System.Drawing.Image image, string path)
-        {
-            image.Save(path, GetImageFormatForPath(path));
+            ImageEncoder.Save(image, path, originalData);
         }
         public static void SaveImage(Bitmap bitmap, string path)
         {
-            ImageFormat format = GetImageFormatForPath(path);
-            if (format.Equals(ImageFormat.Png))
+            if (ImageEncoder.GetFormatForPath(path) == SKEncodedImageFormat.Png)
             {
                 bitmap.Save(path);
                 return;
@@ -107,8 +86,12 @@ namespace LogicReinc.BlendFarm
             {
                 bitmap.Save(str);
                 str.Position = 0;
-                using (System.Drawing.Image image = System.Drawing.Image.FromStream(str))
-                    image.Save(path, format);
+                using (SKBitmap image = ImageConverter.Default.FromStream(str))
+                {
+                    if (image == null)
+                        throw new InvalidOperationException("Failed to read image");
+                    ImageEncoder.Save(image, path);
+                }
             }
         }
 
@@ -130,14 +113,51 @@ namespace LogicReinc.BlendFarm
             return Shared.OutputNaming.ApplyFrameHashes(frameFormat, frame, startFrame, endFrame);
         }
 
-        public static Bitmap ToAvaloniaBitmap(this System.Drawing.Image bitmap)
+        /// <summary>
+        /// Copies the pixels of a Skia bitmap into a new Avalonia bitmap (no encoding), can be called off the UI thread.
+        /// Returns null if the bitmap was disposed already.
+        /// </summary>
+        /// <param name="syncLock">Lock to hold while reading, for bitmaps that are drawn into concurrently (RenderTask.ResultLock)</param>
+        public static Bitmap ToAvaloniaBitmap(this SKBitmap bitmap, object syncLock = null)
         {
-            //TODO: This needs to be better..
-            using (MemoryStream str = new MemoryStream())
+            if (bitmap == null)
+                return null;
+            if (syncLock == null)
+                return CopyToAvaloniaBitmap(bitmap);
+            lock (syncLock)
+                return CopyToAvaloniaBitmap(bitmap);
+        }
+        private static Bitmap CopyToAvaloniaBitmap(SKBitmap bitmap)
+        {
+            if (bitmap.Handle == IntPtr.Zero || bitmap.Width <= 0 || bitmap.Height <= 0)
+                return null;
+
+            PixelFormat? format = null;
+            if (bitmap.ColorType == SKColorType.Bgra8888)
+                format = PixelFormat.Bgra8888;
+            else if (bitmap.ColorType == SKColorType.Rgba8888)
+                format = PixelFormat.Rgba8888;
+
+            AlphaFormat? alpha = null;
+            if (bitmap.AlphaType == SKAlphaType.Premul)
+                alpha = AlphaFormat.Premul;
+            else if (bitmap.AlphaType == SKAlphaType.Unpremul)
+                alpha = AlphaFormat.Unpremul;
+            else if (bitmap.AlphaType == SKAlphaType.Opaque)
+                alpha = AlphaFormat.Opaque;
+
+            //Avalonia copies the pixels
+            if (format != null && alpha != null)
+                return new Bitmap(format.Value, alpha.Value, bitmap.GetPixels(), new PixelSize(bitmap.Width, bitmap.Height), new Vector(96, 96), bitmap.RowBytes);
+
+            //Other color types (eg. future 16-bit/float results), convert to 8-bit premultiplied first
+            using (SKBitmap converted = new SKBitmap(new SKImageInfo(bitmap.Width, bitmap.Height, SKColorType.Bgra8888, SKAlphaType.Premul)))
+            using (SKPixmap source = bitmap.PeekPixels())
+            using (SKPixmap target = converted.PeekPixels())
             {
-                bitmap.Save(str, ImageFormat.Png);
-                str.Position = 0;
-                return new Bitmap(str);
+                if (source == null || !source.ReadPixels(target))
+                    throw new InvalidOperationException($"Unsupported image color type {bitmap.ColorType}");
+                return new Bitmap(PixelFormat.Bgra8888, AlphaFormat.Premul, converted.GetPixels(), new PixelSize(converted.Width, converted.Height), new Vector(96, 96), converted.RowBytes);
             }
         }
     }
