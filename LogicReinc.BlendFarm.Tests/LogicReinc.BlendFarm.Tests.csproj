@@ -7,13 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="BlendfarmDemo.blend" />
+    <None Remove="BlendFarmDemo.blend" />
     <None Remove="bmw27.blend" />
     <None Remove="room.blend" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="BlendfarmDemo.blend">
+    <Content Include="BlendFarmDemo.blend">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

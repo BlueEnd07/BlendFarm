@@ -28,7 +28,7 @@ namespace LogicReinc.BlendFarm.Tests
         private static bool REMOVE_RESULTS = false;
 
         private static string BLEND_FILE = "BlendFarmDemo.blend";
-        private static string BLEND_VERSION = "blender-2.91.0";
+        private static string BLEND_VERSION = "blender-4.5.9";
 
         private static int PORT = 18585;
         private static string THIS_NAME = "This";
