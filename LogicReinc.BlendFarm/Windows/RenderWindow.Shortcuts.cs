@@ -46,10 +46,37 @@ namespace LogicReinc.BlendFarm.Windows
             ShortcutAction? action = ShortcutCatalog.Resolve(e.Key, e.KeyModifiers);
             if (action == null)
                 return;
-            //Esc also closes an open combo box popup: leave it to the combo box
-            if (action == ShortcutAction.CancelRender && (!IsRendering || IsDropDownOpen()))
-                return;
+            if (action == ShortcutAction.CancelRender)
+            {
+                //Esc also closes an open combo box popup and reverts a text edit: leave it to those controls
+                EscapeDecision decision = ShortcutCatalog.DecideEscape(IsRendering, FocusManager.Instance?.Current is TextBox, IsDropDownOpen(), RenderElapsed);
+                if (decision == EscapeDecision.Ignore)
+                    return;
+                if (decision == EscapeDecision.Confirm)
+                {
+                    e.Handled = true;
+                    _ = ConfirmCancelRender();
+                    return;
+                }
+            }
             e.Handled = Run(() => ExecuteShortcut(action.Value));
+        }
+
+        private bool _confirmingCancel;
+
+        // A long render is expensive to lose, Esc is easy to hit by accident: ask first.
+        private async Task ConfirmCancelRender()
+        {
+            if (_confirmingCancel)
+                return;
+            _confirmingCancel = true;
+            try
+            {
+                if (await YesNoWindow.Show(this, "Cancel render", $"The render has been running for {FormatDuration(RenderElapsed)}. Cancel it?") && IsRendering)
+                    await CancelRenderSafe();
+            }
+            catch (Exception ex) { AddActivityLog($"Shortcut failed: {ex.Message}", ActivityLogType.Error); }
+            finally { _confirmingCancel = false; }
         }
 
         /// <summary>Performs a shortcut action; actions that don't apply right now (no project, nothing to save) do nothing.</summary>

@@ -291,6 +291,7 @@ namespace LogicReinc.BlendFarm.Objects
                     LastImage = final;
                     FinishedAllFrames = true;
 
+                    string savedPath = null;
                     if (!string.IsNullOrEmpty(SaveTo))
                     {
                         //If SaveTo points at a directory, expand the project's output template into a filename.
@@ -304,6 +305,7 @@ namespace LogicReinc.BlendFarm.Objects
                             target = Path.Combine(SaveTo, name);
                         }
                         Statics.SaveImage(final, target, imageTask.FinalImageData);
+                        savedPath = target;
                     }
 
                     //Apply final to canvas, copied here off the UI thread
@@ -318,7 +320,9 @@ namespace LogicReinc.BlendFarm.Objects
                     });
                     window.RefreshCurrentProject();
                     queueWatch.Stop();
-                    _owner.NotifyRenderCompleted(BuildCompletionInfo(true, queueWatch.Elapsed, null, manager));
+                    RenderCompletionInfo stillInfo = BuildCompletionInfo(true, queueWatch.Elapsed, null, manager);
+                    stillInfo.OutputPath = savedPath;
+                    _owner.NotifyRenderCompleted(stillInfo);
                     savedFrames = 1;
                 }
                 else

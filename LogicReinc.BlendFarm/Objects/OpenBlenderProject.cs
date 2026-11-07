@@ -167,7 +167,8 @@ namespace LogicReinc.BlendFarm.Objects
             EncodeMp4 = settings?.EncodeMp4 ?? false;
             EncodingFPS = settings?.EncodingFPS ?? 0;
         }
-        public void SaveAsDefault()
+        /// <summary>Stores the current render settings as the default for new projects. Returns false if the settings file couldn't be written.</summary>
+        public bool SaveAsDefault()
         {
             BlendFarmSettings.Instance.UISettings = new UISettings()
             {
@@ -188,7 +189,8 @@ namespace LogicReinc.BlendFarm.Objects
                 EncodeMp4 = EncodeMp4,
                 EncodingFPS = EncodingFPS
             };
-            BlendFarmSettings.Instance.Save();
+            //Runs from a click handler: a failing write (read-only folder, disk full) must not escape
+            return BlendFarmSettings.Instance.TrySave();
         }
 
 

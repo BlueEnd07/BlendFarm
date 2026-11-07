@@ -65,6 +65,16 @@ namespace LogicReinc.BlendFarm.Controls
                 anchorY - (anchorY - current.OffsetY) * ratio);
         }
 
+        /// <summary>
+        /// Nearest point to the anchor that lies on the image (view coordinates). Zooming around a point outside the
+        /// image would otherwise push the image away from the view centre until the offset clamp pins it to an edge.
+        /// </summary>
+        public static (double X, double Y) ClampAnchorToImage(ViewTransform t, double anchorX, double anchorY, double imageWidth, double imageHeight)
+        {
+            double w = imageWidth * t.Scale, h = imageHeight * t.Scale;
+            return (Math.Min(Math.Max(anchorX, t.OffsetX), t.OffsetX + w), Math.Min(Math.Max(anchorY, t.OffsetY), t.OffsetY + h));
+        }
+
         /// <summary>Scale multiplier for a mouse wheel step (delta in wheel notches, positive = zoom in).</summary>
         public static double WheelFactor(double delta) => Math.Pow(1.15, delta);
 

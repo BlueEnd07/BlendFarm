@@ -24,5 +24,7 @@ namespace LogicReinc.BlendFarm.Objects
         public string EngineOrError { get; set; }
         /// <summary>Folder the output was saved to, if any (offered as "Open folder" in the toast).</summary>
         public string OutputDirectory { get; set; }
+        /// <summary>Image file a still render was saved to, if it was saved (queue items with a save target).</summary>
+        public string OutputPath { get; set; }
     }
 }
