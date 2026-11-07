@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:convs="clr-namespace:LogicReinc.BlendFarm.Converters;assembly=LogicReinc.BlendFarm" mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="950" x:Class="LogicReinc.BlendFarm.Windows.RenderWindow" Title="BlendFarm" Background="{StaticResource BlendFarmWindowBrush}">
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:convs="clr-namespace:LogicReinc.BlendFarm.Converters;assembly=LogicReinc.BlendFarm" xmlns:ctl="clr-namespace:LogicReinc.BlendFarm.Controls;assembly=LogicReinc.BlendFarm" mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="950" x:Class="LogicReinc.BlendFarm.Windows.RenderWindow" Title="BlendFarm" Background="{StaticResource BlendFarmWindowBrush}">
   <Window.Resources>
     <convs:LogTypeToColorConverter x:Key="LogTypeToColor"/>
   </Window.Resources>
@@ -246,7 +246,7 @@
         <TextBlock Text="Press Render Now to render a still" IsVisible="{Binding HasCurrentProject}" TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource BlendFarmLabelBrush}"/>
         <TextBlock Text="Open a .blend project with the + button above to get started" IsVisible="{Binding !HasCurrentProject}" TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource BlendFarmLabelBrush}"/>
       </StackPanel>
-      <Image x:Name="render" Source="{Binding CurrentProject.LastImage}" Grid.Row="1" Grid.Column="0" Stretch="Uniform"/>
+      <ctl:RenderPreview x:Name="render" Source="{Binding CurrentProject.LastImage}" Grid.Row="1" Grid.Column="0"/>
       <ProgressBar IsVisible="{Binding CurrentProject.IsRendering, FallbackValue=False, TargetNullValue=False}" x:Name="renderProgress" Grid.Column="0" Grid.Row="1" VerticalAlignment="Bottom" Height="5"/>
       <Border x:Name="toastOverlay" Grid.Row="1" Grid.Column="0" IsVisible="False" ZIndex="100" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0" MaxWidth="480" Padding="14,10" CornerRadius="6" BorderThickness="1" Background="{StaticResource BlendFarmSurfaceBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}">
         <StackPanel Orientation="Horizontal">

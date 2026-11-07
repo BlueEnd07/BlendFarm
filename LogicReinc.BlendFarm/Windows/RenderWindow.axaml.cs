@@ -188,7 +188,7 @@ namespace LogicReinc.BlendFarm.Windows
 
 
         //Views
-        private Image _image = null;
+        private Controls.RenderPreview _image = null;
         private ProgressBar _imageProgress = null;
         private TextBlock _lastRenderTime = null;
         private TextBlock _estimatedRenderTime = null;
@@ -353,6 +353,7 @@ namespace LogicReinc.BlendFarm.Windows
 
             this.InitializeComponent();
             InitializeWindowLayout();
+            InitializePreviewFeatures();
             StartDiscoveryTracking();
             _ = StartAutomaticNodeSetup();
         }
@@ -408,7 +409,7 @@ namespace LogicReinc.BlendFarm.Windows
             System.Version version = Assembly.GetExecutingAssembly().GetName().Version;
             this.Title = $"BlendFarm by LogicReinc [{version.Major}.{version.Minor}.{version.Build}]";
 
-            _image = this.Find<Image>("render");
+            _image = this.Find<Controls.RenderPreview>("render");
             _imageProgress = this.Find<ProgressBar>("renderProgress");
             _lastRenderTime = this.Find<TextBlock>("lastRenderTime");
             _estimatedRenderTime = this.Find<TextBlock>("estimatedRenderTime");
@@ -2189,6 +2190,7 @@ namespace LogicReinc.BlendFarm.Windows
                 {
                     Statics.SaveImage(image, result);
                     RememberOutputFolder(project, Path.GetDirectoryName(Path.GetFullPath(result)));
+                    RecordSavedImageForHistory(project, result);
                 }
                 catch (Exception ex)
                 {
@@ -2485,6 +2487,7 @@ namespace LogicReinc.BlendFarm.Windows
             if (info == null)
                 return;
 
+            RecordRenderForPreviewFeatures(info);
             if (info.Success && !string.IsNullOrEmpty(info.OutputDirectory))
                 Dispatcher.UIThread.Post(() => RememberOutputFolder(Projects.FirstOrDefault(p => p.BlendFile == info.BlendFile), info.OutputDirectory));
             BlendFarmSettings settings = BlendFarmSettings.Instance;
