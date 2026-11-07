@@ -3,7 +3,7 @@ using LogicReinc.BlendFarm.Shared;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Drawing;
+using SkiaSharp;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -13,7 +13,8 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 {
     public class SplitChunkedTask : RenderTask, IImageTask
     {
-        public Image FinalImage { get; private set; }
+        public SKBitmap FinalImage { get; private set; }
+        public byte[] FinalImageData { get; private set; }
 
         public SplitChunkedTask(List<RenderNode> nodes, string session, string version, long fileId, RenderManagerSettings settings = null) : base(nodes, session, version, fileId, settings)
         {
@@ -21,9 +22,10 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
         protected override async Task<bool> Execute()
         {
-            object drawLock = new object();
-            Bitmap result = new Bitmap(Settings.OutputWidth, Settings.OutputHeight);
-            Graphics g = Graphics.FromImage(result);
+            SKBitmap result = TileCompositor.CreateResult(Settings.OutputWidth, Settings.OutputHeight);
+            SKCanvas canvas = new SKCanvas(result);
+            byte[] wholeFrameData = null;
+            bool succeeded = false;
             try
             {
 
@@ -64,8 +66,9 @@ namespace LogicReinc.BlendFarm.Client.Tasks
                         {
                             SubTaskBatchResult resp = ExecuteSubTasks(node, (rsbt, rbr) =>
                             {
-                                using(Image img = ImageConverter.Convert(rbr.Data, Settings.RenderFormat))
-                                    ProcessTile(rsbt, img, ref g, ref result, ref drawLock);
+                                ProcessTile(rsbt, rbr.Data, ref canvas, ref result);
+                                if (tasks.Count == 1 && IsWholeFrame(rsbt))
+                                    wholeFrameData = rbr.Data;
 
                                 received[rsbt] = true;
                                 ChangeProgress((double)received.Count / tasks.Count);
@@ -95,8 +98,9 @@ namespace LogicReinc.BlendFarm.Client.Tasks
                     {
                         HandleQueue(available, missing, (rsbt, tresult) =>
                         {
-                            using (Image img = ImageConverter.Convert(tresult.Image, Settings.RenderFormat))
-                                ProcessTile(rsbt, img, ref g, ref result, ref drawLock);
+                            ProcessTile(rsbt, tresult, ref canvas, ref result);
+                            if (tasks.Count == 1 && IsWholeFrame(rsbt))
+                                wholeFrameData = tresult.Image;
                             received[rsbt] = true;
                             ChangeProgress((double)received.Count / tasks.Count);
                         }, (node, rsbt, ex) => { });
@@ -105,13 +109,15 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
                 if (!Cancelled && received.Count < tasks.Count)
                     throw new Exception($"Not all tiles rendered ({received.Count}/{tasks.Count})");
+                succeeded = true;
             }
             finally
             {
-                if (g != null)
-                    g.Dispose();
+                //A failed render hands out no image, release it right away
+                ReleaseResult(ref canvas, result, !succeeded);
             }
             FinalImage = result;
+            FinalImageData = wholeFrameData;
 
             return true;
         }

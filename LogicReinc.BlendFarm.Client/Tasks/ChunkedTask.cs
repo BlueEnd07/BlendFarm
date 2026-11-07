@@ -2,7 +2,7 @@
 using LogicReinc.BlendFarm.Shared;
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using SkiaSharp;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -11,13 +11,14 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 {
     public class ChunkedTask : QueuedExecutionTask, IImageTask
     {
-        private object _drawLock = new object();
-        private Bitmap result;
-        private Graphics g;
+        private SKBitmap result;
+        private SKCanvas canvas;
+        private byte[] _wholeFrameData;
         private int _tilesTotal = 0;
         private int _tilesFinished = 0;
 
-        public Image FinalImage { get; private set; }
+        public SKBitmap FinalImage { get; private set; }
+        public byte[] FinalImageData { get; private set; }
 
         public ChunkedTask(List<RenderNode> nodes, string session, string version, long fileId, RenderManagerSettings settings = null) : base(nodes, session, version, fileId, settings)
         {
@@ -25,8 +26,9 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
         protected override void Setup()
         {
-            result = new Bitmap(Settings.OutputWidth, Settings.OutputHeight);
-            g = Graphics.FromImage(result);
+            result = TileCompositor.CreateResult(Settings.OutputWidth, Settings.OutputHeight);
+            canvas = new SKCanvas(result);
+            _wholeFrameData = null;
         }
         protected override RenderSubTask[] GetTasks()
         {
@@ -38,10 +40,10 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
         protected override void Roundup()
         {
-            if (g != null)
-                g.Dispose();
+            ReleaseResult(ref canvas, result, false);
 
             FinalImage = result;
+            FinalImageData = (_tilesTotal == 1) ? _wholeFrameData : null;
 
             //Tiles that failed on every attempt, don't hand back a partial image as a finished render
             if (!Cancelled && _tilesFinished < _tilesTotal)
@@ -50,8 +52,9 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
         protected override void HandleResult(RenderSubTask task, SubTaskResult tresult)
         {
-            using (Image img = ImageConverter.Convert(tresult.Image, task.Parent.Settings.RenderFormat))
-                ProcessTile(task, img, ref g, ref result, ref _drawLock);
+            ProcessTile(task, tresult, ref canvas, ref result);
+            if (IsWholeFrame(task))
+                _wholeFrameData = tresult.Image;
             int finished = Interlocked.Increment(ref _tilesFinished);
             ChangeProgress((double)finished / _tilesTotal);
         }

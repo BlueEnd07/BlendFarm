@@ -3,7 +3,7 @@ using LogicReinc.BlendFarm.Client.ImageTypes;
 using LogicReinc.BlendFarm.Shared;
 using System;
 using System.Collections.Generic;
-using System.Drawing;
+using SkiaSharp;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -17,7 +17,8 @@ namespace LogicReinc.BlendFarm.Client.Tasks
         private bool _isVertical;
 
 
-        public Image FinalImage { get; private set; }
+        public SKBitmap FinalImage { get; private set; }
+        public byte[] FinalImageData { get; private set; }
 
 
         public SplittedTask(List<RenderNode> nodes, string session, string version, long fileId, RenderManagerSettings settings = null, bool vertical = false) : base(nodes, session, version, fileId, settings)
@@ -27,9 +28,10 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
         protected override async Task<bool> Execute()
         {
-            object drawLock = new object();
-            Bitmap result = new Bitmap(Settings.OutputWidth, Settings.OutputHeight);
-            Graphics g = Graphics.FromImage(result);
+            SKBitmap result = TileCompositor.CreateResult(Settings.OutputWidth, Settings.OutputHeight);
+            SKCanvas canvas = new SKCanvas(result);
+            byte[] wholeFrameData = null;
+            bool succeeded = false;
             try
             {
                 Dictionary<RenderNode, RenderSubTask> assignment = GetSplitSubTasks(_usedNodes, _isVertical);
@@ -85,8 +87,9 @@ namespace LogicReinc.BlendFarm.Client.Tasks
                                 continue;
                             }
 
-                            using (Image img = ImageConverter.Convert(taskPart.Image, task.Parent.Settings.RenderFormat))
-                                ProcessTile(task, img, ref g, ref result, ref drawLock);
+                            ProcessTile(task, taskPart, ref canvas, ref result);
+                            if (assignment.Count == 1 && IsWholeFrame(task))
+                                wholeFrameData = taskPart.Image;
 
                             AddProgress(task.Value);
 
@@ -105,13 +108,15 @@ namespace LogicReinc.BlendFarm.Client.Tasks
 
                     return result;
                 });
+                succeeded = true;
             }
             finally
             {
-                if (g != null)
-                    g.Dispose();
+                //A failed render hands out no image, release it right away
+                ReleaseResult(ref canvas, result, !succeeded);
             }
             FinalImage = result;
+            FinalImageData = wholeFrameData;
             return true;
         }
 
