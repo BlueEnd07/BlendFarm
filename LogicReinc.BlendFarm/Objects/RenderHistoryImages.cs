@@ -17,8 +17,16 @@ namespace LogicReinc.BlendFarm.Objects
         /// </summary>
         /// <returns>False if the data could not be decoded</returns>
         public static bool TryCreate(byte[] imageData, string thumbnailPath, string previewPath, out int width, out int height)
+            => TryCreate(imageData, thumbnailPath, previewPath, out width, out height, out _);
+
+        /// <summary>
+        /// Same, and reports the preview path actually written: renders with transparency get a PNG preview
+        /// (the extension is switched to .png) because JPEG has no alpha and would turn them black.
+        /// </summary>
+        public static bool TryCreate(byte[] imageData, string thumbnailPath, string previewPath, out int width, out int height, out string writtenPreviewPath)
         {
             width = height = 0;
+            writtenPreviewPath = null;
             if (imageData == null || imageData.Length == 0)
                 return false;
             try
@@ -32,7 +40,11 @@ namespace LogicReinc.BlendFarm.Objects
                     if (!string.IsNullOrEmpty(thumbnailPath))
                         Write(source, ThumbnailMaxEdge, thumbnailPath, SKEncodedImageFormat.Png, 100);
                     if (!string.IsNullOrEmpty(previewPath))
-                        Write(source, PreviewMaxEdge, previewPath, SKEncodedImageFormat.Jpeg, 85);
+                    {
+                        bool alpha = HasTransparency(source);
+                        writtenPreviewPath = alpha ? Path.ChangeExtension(previewPath, ".png") : previewPath;
+                        Write(source, PreviewMaxEdge, writtenPreviewPath, alpha ? SKEncodedImageFormat.Png : SKEncodedImageFormat.Jpeg, alpha ? 100 : 85);
+                    }
                     return true;
                 }
             }
@@ -41,6 +53,33 @@ namespace LogicReinc.BlendFarm.Objects
                 Console.WriteLine($"Failed to create history thumbnail: {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>True if any pixel is not fully opaque (an alpha channel that is 255 everywhere doesn't count).</summary>
+        public static bool HasTransparency(SKBitmap bitmap)
+        {
+            if (bitmap == null || bitmap.AlphaType == SKAlphaType.Opaque)
+                return false;
+            if (bitmap.ColorType != SKColorType.Bgra8888 && bitmap.ColorType != SKColorType.Rgba8888)
+            {
+                //Rare formats: ask Skia per pixel (slow but only reached for unusual decodes)
+                for (int y = 0; y < bitmap.Height; y++)
+                    for (int x = 0; x < bitmap.Width; x++)
+                        if (bitmap.GetPixel(x, y).Alpha != 255)
+                            return true;
+                return false;
+            }
+            //Both 8-bit formats keep alpha in the 4th byte
+            ReadOnlySpan<byte> pixels = bitmap.GetPixelSpan();
+            int rowBytes = bitmap.RowBytes;
+            for (int y = 0; y < bitmap.Height; y++)
+            {
+                ReadOnlySpan<byte> row = pixels.Slice(y * rowBytes, bitmap.Width * 4);
+                for (int x = 3; x < row.Length; x += 4)
+                    if (row[x] != 255)
+                        return true;
+            }
+            return false;
         }
 
         /// <summary>Size that fits within maxEdge on its longest side, never upscaling.</summary>

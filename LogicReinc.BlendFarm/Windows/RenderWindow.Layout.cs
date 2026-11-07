@@ -80,6 +80,18 @@ namespace LogicReinc.BlendFarm.Windows
                 return;
             int index = Projects.IndexOf(project);
             if (index < 0 || project.IsRendering) return;
+            //Queued items keep working on the project after its tab is gone: make sure that is what the user wants
+            int queued;
+            lock (Queue)
+                queued = Queue.Count(item => ReferenceEquals(item.Project, project) && item.Active);
+            if (queued > 0)
+            {
+                bool close = await YesNoWindow.Show(this, "Close project",
+                    $"{queued} queued item(s) still use {project.BlendFileDisplay}. They stay in the queue and render when it runs, but the project's tab and preview image are removed. Close it anyway?");
+                //Things may have changed while the dialog was open
+                index = Projects.IndexOf(project);
+                if (!close || !CanCloseProjects || index < 0 || project.IsRendering) return;
+            }
             // Suppress selection events while the collection and selected index change together.
             _closingProject = true;
             try
@@ -91,6 +103,7 @@ namespace LogicReinc.BlendFarm.Windows
                     await SwitchProject(CurrentProject);
             }
             finally { _closingProject = false; }
+            ReleaseClosedProjectState(project);
             AddActivityLog($"Closed {project.BlendFileDisplay}");
         }
 

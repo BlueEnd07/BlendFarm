@@ -26,11 +26,15 @@ namespace LogicReinc.BlendFarm.Controls
             AvaloniaProperty.Register<RenderPreview, bool>(nameof(IsCompareEnabled));
         public static readonly StyledProperty<bool> ShowHistoryButtonProperty =
             AvaloniaProperty.Register<RenderPreview, bool>(nameof(ShowHistoryButton), true);
+        /// <summary>Adds "Delete: clear the image" to the tooltip, only for hosts that handle the Delete key.</summary>
+        public static readonly StyledProperty<bool> ShowClearHintProperty =
+            AvaloniaProperty.Register<RenderPreview, bool>(nameof(ShowClearHint), false);
 
         public IImage Source { get => GetValue(SourceProperty); set => SetValue(SourceProperty, value); }
         public IImage CompareSource { get => GetValue(CompareSourceProperty); set => SetValue(CompareSourceProperty, value); }
         public bool IsCompareEnabled { get => GetValue(IsCompareEnabledProperty); set => SetValue(IsCompareEnabledProperty, value); }
         public bool ShowHistoryButton { get => GetValue(ShowHistoryButtonProperty); set => SetValue(ShowHistoryButtonProperty, value); }
+        public bool ShowClearHint { get => GetValue(ShowClearHintProperty); set => SetValue(ShowClearHintProperty, value); }
 
         /// <summary>Raised when the History button is pressed.</summary>
         public event Action HistoryRequested;
@@ -49,7 +53,8 @@ namespace LogicReinc.BlendFarm.Controls
 
         private TextBlock _zoomText;
         private ToggleButton _compareButton;
-        private Button _historyButton;
+        private Button _historyButton, _fitButton, _actualButton;
+        private Border _toolbar;
         private bool _syncingCompare;
 
         private static WriteableBitmap _checkerImage;
@@ -61,6 +66,7 @@ namespace LogicReinc.BlendFarm.Controls
             CompareSourceProperty.Changed.AddClassHandler<RenderPreview>((c, e) => c.UpdateCompareUi());
             IsCompareEnabledProperty.Changed.AddClassHandler<RenderPreview>((c, e) => c.UpdateCompareUi());
             ShowHistoryButtonProperty.Changed.AddClassHandler<RenderPreview>((c, e) => c.UpdateCompareUi());
+            ShowClearHintProperty.Changed.AddClassHandler<RenderPreview>((c, e) => c.UpdateZoomTip());
         }
 
         public RenderPreview()
@@ -69,12 +75,14 @@ namespace LogicReinc.BlendFarm.Controls
             _zoomText = this.FindControl<TextBlock>("zoomText");
             _compareButton = this.FindControl<ToggleButton>("compareButton");
             _historyButton = this.FindControl<Button>("historyButton");
-            var toolbar = this.FindControl<Border>("toolbar");
-            toolbar.PointerPressed += (s, e) => e.Handled = true;
-            toolbar.PointerWheelChanged += (s, e) => e.Handled = true;
-            ToolTip.SetTip(_zoomText, "Mouse wheel: zoom at the cursor\nDrag: pan\nDouble-click: fit\nDelete: clear the image");
-            this.FindControl<Button>("fitButton").Click += (s, e) => { FitToView(); Focus(); };
-            this.FindControl<Button>("actualButton").Click += (s, e) => { ActualSize(); Focus(); };
+            _toolbar = this.FindControl<Border>("toolbar");
+            _fitButton = this.FindControl<Button>("fitButton");
+            _actualButton = this.FindControl<Button>("actualButton");
+            _toolbar.PointerPressed += (s, e) => e.Handled = true;
+            _toolbar.PointerWheelChanged += (s, e) => e.Handled = true;
+            UpdateZoomTip();
+            _fitButton.Click += (s, e) => { FitToView(); Focus(); };
+            _actualButton.Click += (s, e) => { ActualSize(); Focus(); };
             _historyButton.Click += (s, e) => HistoryRequested?.Invoke();
             _compareButton.Click += (s, e) =>
             {
@@ -122,8 +130,15 @@ namespace LogicReinc.BlendFarm.Controls
             InvalidateVisual();
         }
 
+        private void UpdateZoomTip()
+        {
+            if (_zoomText == null) return;
+            ToolTip.SetTip(_zoomText, "Mouse wheel: zoom at the cursor\nDrag: pan\nDouble-click: fit" + (ShowClearHint ? "\nDelete: clear the image" : ""));
+        }
+
         private void OnSourceChanged(IImage oldImage, IImage newImage)
         {
+            UpdateCompareUi();
             Size o = PixelSizeOf(oldImage), n = PixelSizeOf(newImage);
             //Tile previews swap the image constantly, only a new/different-sized image resets the view
             if (oldImage == null || newImage == null || o != n)
@@ -146,11 +161,15 @@ namespace LogicReinc.BlendFarm.Controls
         private void UpdateCompareUi()
         {
             if (_compareButton == null) return;
-            _compareButton.IsVisible = CompareSource != null;
+            bool hasImage = Source != null;
+            //Zoom controls need an image, Compare needs both the current and the previous one
+            _zoomText.IsVisible = _fitButton.IsVisible = _actualButton.IsVisible = hasImage;
+            _compareButton.IsVisible = hasImage && CompareSource != null;
             _syncingCompare = true;
             try { _compareButton.IsChecked = IsCompareEnabled; }
             finally { _syncingCompare = false; }
             _historyButton.IsVisible = ShowHistoryButton;
+            _toolbar.IsVisible = hasImage || ShowHistoryButton;
             InvalidateVisual();
         }
 
@@ -171,6 +190,8 @@ namespace LogicReinc.BlendFarm.Controls
             ViewTransform t = Current();
             double min = ZoomMath.MinScale(Bounds.Width, Bounds.Height, img.Width, img.Height);
             scale = ZoomMath.ClampScale(scale, min, ZoomMath.MaxScale);
+            //Anchor on the image itself: a cursor outside it would make the image drift towards an edge
+            (anchorX, anchorY) = ZoomMath.ClampAnchorToImage(t, anchorX, anchorY, img.Width, img.Height);
             t = ZoomMath.ZoomAround(t, scale, anchorX, anchorY);
             _t = ZoomMath.ClampOffset(t, Bounds.Width, Bounds.Height, img.Width, img.Height);
             _fit = false;

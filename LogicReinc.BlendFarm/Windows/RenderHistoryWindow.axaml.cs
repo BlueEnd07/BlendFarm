@@ -73,10 +73,18 @@ namespace LogicReinc.BlendFarm.Windows
             PathText = string.IsNullOrEmpty(shown) ? "Not saved to disk" : shown;
             PathTip = PathText;
 
-            if (!string.IsNullOrEmpty(output) && !outputExists)
-                StatusText = previewExists ? "Saved file is missing, opening the preview copy" : "Saved file is missing";
-            else if (!outputExists && !previewExists && entry.IsAnimation == false)
-                StatusText = "Image no longer available";
+            StatusText = DescribeStatus(entry, outputExists, previewExists);
+        }
+
+        /// <summary>Hint shown on a card whose image can't be opened (null when everything is fine).</summary>
+        public static string DescribeStatus(RenderHistoryEntry entry, bool outputExists, bool previewExists)
+        {
+            if (!string.IsNullOrEmpty(entry.OutputPath) && !outputExists)
+                return previewExists ? "Saved file is missing, opening the preview copy" : "Saved file is missing";
+            if (!outputExists && !previewExists && !entry.IsAnimation)
+                //No preview recorded at all: nothing was ever captured (eg. the render had no preview image)
+                return string.IsNullOrEmpty(entry.PreviewFile) ? "No image captured" : "Image no longer available";
+            return null;
         }
 
         private static string FormatDuration(TimeSpan t)

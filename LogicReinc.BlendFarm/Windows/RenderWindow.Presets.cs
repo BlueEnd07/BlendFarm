@@ -67,6 +67,15 @@ namespace LogicReinc.BlendFarm.Windows
             });
         }
 
+        // The closed project's samples baseline must not keep the project (and its image) alive
+        private void ReleaseClosedProjectState(OpenBlenderProject project)
+        {
+            _presetBaselineSamples.Remove(project);
+            if (ReferenceEquals(_presetProject, project))
+                _presetProject = null;
+            ReleaseProjectPreviewState(project);
+        }
+
         private void ReloadPresets(string selectName)
         {
             _applyingPreset = true;

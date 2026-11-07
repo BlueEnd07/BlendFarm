@@ -22,6 +22,8 @@ namespace LogicReinc.BlendFarm.Windows
         private sealed class CompareState
         {
             public bool Hooked;
+            /// <summary>Set when the project tab was closed: late results (decodes, encodes) must not resurrect the state.</summary>
+            public bool Closed;
             /// <summary>The last completed still render, not yet shown as "before".</summary>
             public byte[] SnapshotPng;
             /// <summary>The "before" image of the compare slider.</summary>
@@ -34,6 +36,7 @@ namespace LogicReinc.BlendFarm.Windows
         private void InitializePreviewFeatures()
         {
             _image.HistoryRequested += ShowRenderHistory;
+            _image.ShowClearHint = true; //this window handles the Delete key (the pop-out viewer doesn't)
             //Fires on project switches (and on every tile preview, which is cheap here)
             this.GetObservable(CurrentProjectProperty).Subscribe(project =>
             {
@@ -73,6 +76,7 @@ namespace LogicReinc.BlendFarm.Windows
         /// <summary>Turns the stored snapshot into the project's "before" image.</summary>
         private void PromoteSnapshot(OpenBlenderProject project)
         {
+            if (!Projects.Contains(project)) return;
             CompareState state = CompareStateFor(project);
             byte[] png = state.SnapshotPng;
             if (png == null) return;
@@ -86,6 +90,12 @@ namespace LogicReinc.BlendFarm.Windows
                         var decoded = new Bitmap(stream);
                         Dispatcher.UIThread.Post(() =>
                         {
+                            if (state.Closed)
+                            {
+                                //The tab was closed while decoding
+                                decoded.Dispose();
+                                return;
+                            }
                             Bitmap old = state.Previous;
                             state.Previous = decoded;
                             if (old != null) Statics.DisposeReplacedBitmap(old);
@@ -98,6 +108,33 @@ namespace LogicReinc.BlendFarm.Windows
                     Console.WriteLine($"Failed to prepare compare image: {ex.Message}");
                 }
             });
+        }
+
+        /// <summary>
+        /// Drops what the preview features hold for a closed project tab: the compare image and snapshot, and its own
+        /// rendered image (unless it is still what the preview shows). Call after the tab was removed and another one shown.
+        /// </summary>
+        private void ReleaseProjectPreviewState(OpenBlenderProject project)
+        {
+            if (project == null) return;
+            if (_compareStates.TryGetValue(project, out CompareState state))
+            {
+                state.Closed = true;
+                state.SnapshotPng = null;
+                Bitmap previous = state.Previous;
+                state.Previous = null;
+                if (previous != null)
+                {
+                    if (ReferenceEquals(_image?.CompareSource, previous))
+                        _image.CompareSource = null;
+                    Statics.DisposeReplacedBitmap(previous);
+                }
+                _compareStates.Remove(project);
+            }
+
+            Bitmap image = project.LastImage;
+            if (image != null && !ReferenceEquals(_image?.Source, image))
+                project.LastImage = null; //disposes it (deferred, and never while a history capture is still encoding it)
         }
 
         // ------------------------------------------------------------------ history
@@ -136,6 +173,9 @@ namespace LogicReinc.BlendFarm.Windows
             Bitmap bitmap = project?.LastImage;
             if (bitmap != null && Statics.IsSharedImage(bitmap))
                 bitmap = null;
+            //The UI may replace and dispose the project's image at any moment (Delete key, next render, queue completion);
+            //encoding a disposed bitmap crashes inside Skia. The lease postpones that disposal until the encode is done.
+            IDisposable lease = bitmap != null ? Statics.LeaseBitmap(bitmap) : null;
 
             var entry = new RenderHistoryEntry
             {
@@ -153,7 +193,9 @@ namespace LogicReinc.BlendFarm.Windows
                 Samples = info.Samples,
                 Engine = info.EngineOrError,
                 NodeCount = info.NodeCount,
-                OutputDirectory = info.OutputDirectory
+                OutputPath = info.OutputPath,
+                OutputDirectory = !string.IsNullOrEmpty(info.OutputDirectory) ? info.OutputDirectory
+                    : string.IsNullOrEmpty(info.OutputPath) ? null : Path.GetDirectoryName(info.OutputPath)
             };
             bool still = !info.IsAnimation;
             if (still && project != null)
@@ -179,8 +221,11 @@ namespace LogicReinc.BlendFarm.Windows
                     }
                     catch (Exception ex)
                     {
-                        //The bitmap was replaced and disposed while encoding
                         Console.WriteLine($"Could not read render for history: {ex.Message}");
+                    }
+                    finally
+                    {
+                        lease?.Dispose();
                     }
                 }
 
@@ -189,10 +234,14 @@ namespace LogicReinc.BlendFarm.Windows
                 {
                     string thumbRel = Path.Combine("thumbs", entry.Id + ".png");
                     string previewRel = Path.Combine("previews", entry.Id + ".jpg");
-                    if (RenderHistoryImages.TryCreate(png, store.ResolveAsset(thumbRel), store.ResolveAsset(previewRel), out int w, out int h))
+                    string previewAbs = store.ResolveAsset(previewRel);
+                    if (RenderHistoryImages.TryCreate(png, store.ResolveAsset(thumbRel), previewAbs, out int w, out int h, out string writtenPreview))
                     {
                         entry.ThumbnailFile = thumbRel;
-                        entry.PreviewFile = previewRel;
+                        //Transparent renders were written as PNG instead of JPEG
+                        entry.PreviewFile = !string.IsNullOrEmpty(writtenPreview) && !string.Equals(writtenPreview, previewAbs, StringComparison.OrdinalIgnoreCase)
+                            ? Path.ChangeExtension(previewRel, Path.GetExtension(writtenPreview))
+                            : previewRel;
                         if (entry.Width <= 0 || entry.Height <= 0)
                         {
                             entry.Width = w;
@@ -203,7 +252,12 @@ namespace LogicReinc.BlendFarm.Windows
                 store.Add(entry);
 
                 if (still && project != null && png != null)
-                    Dispatcher.UIThread.Post(() => CompareStateFor(project).SnapshotPng = png);
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        //A tab closed in the meantime must not get a new state
+                        if (Projects.Contains(project))
+                            CompareStateFor(project).SnapshotPng = png;
+                    });
             });
         }
 

@@ -134,10 +134,15 @@ namespace LogicReinc.BlendFarm.Windows
         private Task _queueTask = null;
         private CancellationTokenSource _queueCts = null;
 
+        private long _renderStartedTicks;
+        /// <summary>How long the current manual render has been running (zero when idle).</summary>
+        private TimeSpan RenderElapsed => IsRendering ? Stopwatch.GetElapsedTime(Interlocked.Read(ref _renderStartedTicks)) : TimeSpan.Zero;
+
         private bool TryBeginRender(OpenBlenderProject project)
         {
             if (Interlocked.CompareExchange(ref _renderBusy, 1, 0) != 0)
                 return false;
+            Interlocked.Exchange(ref _renderStartedTicks, Stopwatch.GetTimestamp());
             _renderingProject = project;
             _renderCancelRequested = false;
             RaiseIsRenderingChanged();
@@ -1821,7 +1826,16 @@ namespace LogicReinc.BlendFarm.Windows
 
         public void SaveAsDefault()
         {
-            CurrentProject?.SaveAsDefault();
+            OpenBlenderProject project = CurrentProject;
+            if (project == null)
+                return;
+            bool saved = false;
+            try { saved = project.SaveAsDefault(); }
+            catch (Exception ex) { Console.WriteLine($"Failed to save default settings: {ex.Message}"); }
+            if (saved)
+                AddActivityLog($"Saved the settings of {project.BlendFileDisplay} as the default for new projects", ActivityLogType.Success);
+            else
+                AddActivityLog("Could not save the default settings (the settings file could not be written)", ActivityLogType.Error);
         }
 
         //Queue
@@ -2590,7 +2604,9 @@ namespace LogicReinc.BlendFarm.Windows
                     return;
 
                 _toastIcon.Text = info.Success ? "✓" : "✗";
-                _toastIcon.Foreground = new SolidColorBrush(Color.Parse(info.Success ? "#12C979" : "#EF4444"));
+                _toastIcon.Foreground = info.Success
+                    ? Statics.ThemeBrush("BlendFarmSuccessBrush", "#12C979")
+                    : Statics.ThemeBrush("BlendFarmDangerBorderBrush", "#EF4444");
                 _toastTitle.Text = info.Success ? "Render complete" : "Render failed";
                 _toastBody.Text = info.Success
                     ? $"{info.SceneName} · {FormatDuration(info.Elapsed)} · {info.NodeCount} node(s)"
