@@ -463,6 +463,7 @@ namespace LogicReinc.BlendFarm.Objects
                 if (savedFrames > 0) _owner.RecordQueueTiming(savedFrames, queueWatch.Elapsed);
                 _executing = false;
                 Project.SetRenderTask(null);
+                ApplyPendingRequeue();
                 RefreshInfo();
             }
         }
@@ -491,6 +492,7 @@ namespace LogicReinc.BlendFarm.Objects
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCancelable)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SettingsSummary)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFailed)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRequeue)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FailedFramesSummary)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasFailedFrames)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SaveToDisplay)));

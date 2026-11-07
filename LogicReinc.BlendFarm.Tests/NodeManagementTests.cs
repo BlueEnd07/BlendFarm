@@ -148,7 +148,7 @@ namespace LogicReinc.BlendFarm.Tests
             string reported = null;
             node.ConnectionFailed += (sender, message) => reported = message;
             await Assert.ThrowsExceptionAsync<SocketException>(() => node.Connect());
-            Assert.AreEqual(NodeConnectionPolicy.Unreachable, node.Exception);
+            Assert.AreEqual(NodeConnectionPolicy.UnreachableMessage(node.Address), node.Exception);
             Assert.AreEqual(node.Exception, reported);
             Assert.AreEqual("", node.ReconnectStatus);
         }

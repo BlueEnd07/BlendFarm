@@ -521,8 +521,10 @@ namespace LogicReinc.BlendFarm.Client
                 }
                 catch(Exception ex)
                 {
-                    UpdateException(NodeConnectionPolicy.DescribeFailure(ex));
-                    ConnectionFailed?.Invoke(this, Exception);
+                    UpdateException(NodeConnectionPolicy.DescribeFailure(ex, Address));
+                    //Attempts made by the automatic reconnect loop are summarised by ReconnectPhaseChanged instead
+                    if (!IsAutoReconnectRunning)
+                        ConnectionFailed?.Invoke(this, Exception);
                     //Close the half open connection, otherwise its socket and listen thread leak
                     RenderClient failed = Client;
                     Client = null;

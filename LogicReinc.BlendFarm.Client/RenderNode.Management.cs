@@ -4,6 +4,8 @@ using System.Threading.Tasks;
 
 namespace LogicReinc.BlendFarm.Client
 {
+    public enum ReconnectPhase { Started, Succeeded, Stopped }
+
     public partial class RenderNode
     {
         private bool _isEnabled = true;
@@ -17,6 +19,9 @@ namespace LogicReinc.BlendFarm.Client
         private Func<string> _reconnectVersion;
         private bool _autoReconnect;
         public event Action<RenderNode, string> ConnectionFailed;
+        /// <summary>Raised once when automatic reconnecting begins and once when it ends (not per attempt).</summary>
+        public event Action<RenderNode, ReconnectPhase> ReconnectPhaseChanged;
+        private bool IsAutoReconnectRunning { get { lock (_reconnectLock) return _reconnectCancellation != null; } }
 
         public bool IsEnabled
         {
@@ -65,6 +70,7 @@ namespace LogicReinc.BlendFarm.Client
                     return;
                 var cancellation = new CancellationTokenSource();
                 _reconnectCancellation = cancellation;
+                ReconnectPhaseChanged?.Invoke(this, ReconnectPhase.Started);
                 _ = Reconnect(cancellation);
             }
         }
@@ -97,12 +103,16 @@ namespace LogicReinc.BlendFarm.Client
                         var version = _reconnectVersion;
                         if (Connected && version != null)
                             await PrepareVersion(version());
-                        if (Connected && IsPrepared) return;
+                        if (Connected && IsPrepared)
+                        {
+                            ReconnectPhaseChanged?.Invoke(this, ReconnectPhase.Succeeded);
+                            return;
+                        }
                     }
                     catch (Exception) when (!cancellation.IsCancellationRequested) { }
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) { ReconnectPhaseChanged?.Invoke(this, ReconnectPhase.Stopped); }
             finally
             {
                 lock (_reconnectLock)

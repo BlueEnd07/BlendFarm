@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace LogicReinc.BlendFarm.Client
@@ -36,8 +37,38 @@ namespace LogicReinc.BlendFarm.Client
             get
             {
                 var snapshot = Frames;
-                return snapshot.Count == 0 ? "" : $"{snapshot.Count} frames failed: {string.Join(", ", snapshot.Keys)}";
+                return snapshot.Count == 0 ? "" : $"{snapshot.Count} frames failed: {FrameRanges.Format(snapshot.Keys)}";
             }
+        }
+    }
+}
+
+namespace LogicReinc.BlendFarm.Client
+{
+    public static class FrameRanges
+    {
+        /// <summary>Compresses frames into ranges ("1-40, 47"), showing at most <paramref name="maxSegments"/> ranges then "… (+N more)".</summary>
+        public static string Format(IEnumerable<int> frames, int maxSegments = 6)
+        {
+            var sorted = new List<int>(new SortedSet<int>(frames));
+            var segments = new List<(int Start, int End)>();
+            foreach (int frame in sorted)
+            {
+                if (segments.Count > 0 && segments[segments.Count - 1].End != int.MaxValue && segments[segments.Count - 1].End + 1 == frame)
+                    segments[segments.Count - 1] = (segments[segments.Count - 1].Start, frame);
+                else
+                    segments.Add((frame, frame));
+            }
+            var parts = new List<string>();
+            int shown = 0;
+            for (int i = 0; i < segments.Count && i < Math.Max(1, maxSegments); i++)
+            {
+                var (start, end) = segments[i];
+                parts.Add(start == end ? start.ToString() : start + "-" + end);
+                shown += end - start + 1;
+            }
+            string text = string.Join(", ", parts);
+            return shown < sorted.Count ? $"{text} … (+{sorted.Count - shown} more)" : text;
         }
     }
 }

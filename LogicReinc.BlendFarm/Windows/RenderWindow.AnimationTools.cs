@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using LogicReinc.BlendFarm.Client;
@@ -50,20 +51,48 @@ namespace LogicReinc.BlendFarm.Windows
                 AddActivityLog(summary + (nodes.Length == 0 ? "" : " (" + nodes + ")"), ActivityLogType.Error);
                 if (!(_animationProgressPanel?.Child is Panel parent)) return;
                 if (_failedFramesPanel != null) parent.Children.Remove(_failedFramesPanel);
-                _failedFramesPanel = new StackPanel { Spacing = 6, Margin = new Thickness(0, 10, 0, 0) };
-                _failedFramesPanel.Children.Add(new TextBlock { Text = summary, TextWrapping = TextWrapping.Wrap, Foreground = Brushes.OrangeRed });
-                var button = new Button { Content = "Re-render failed frames" };
+                var failedPanel = new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 0) };
+                _failedFramesPanel = failedPanel;
+                var text = new TextBlock { Text = summary, TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = ThemeBrushes.Error };
+                ToolTip.SetTip(text, string.Join(", ", failed.Keys.Select(frame => frame.ToString())));
+                failedPanel.Children.Add(text);
+                var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                var button = new Button { Content = "Re-render failed frames", Padding = new Thickness(8, 3), FontSize = 12 };
                 button.Click += (_, __) =>
                 {
                     if (IsRendering) { AddActivityLog("Wait for the current render before retrying frames.", ActivityLogType.Warning); return; }
                     retry();
-                    _failedFramesPanel.IsVisible = false;
+                    DismissFailedFramesPanel();
                 };
-                _failedFramesPanel.Children.Add(button);
-                parent.Children.Add(_failedFramesPanel);
+                var dismiss = new Button { Content = "Dismiss", Padding = new Thickness(8, 3), FontSize = 12 };
+                dismiss.Click += (_, __) => DismissFailedFramesPanel();
+                buttons.Children.Add(button);
+                buttons.Children.Add(dismiss);
+                failedPanel.Children.Add(buttons);
+                parent.Children.Add(failedPanel);
+                //Failure-only view: the progress rows belong to an animation that is no longer running
+                if (!IsRendering) SetAnimationRowsVisible(false);
                 _animationProgressPanel.IsVisible = true;
             });
         }
+        private void SetAnimationRowsVisible(bool visible)
+        {
+            if (_animationProgressPanel?.Child is Panel parent && parent.Children.FirstOrDefault(c => c is StackPanel s && s.Name == "animationProgressRows") is Control rows)
+                rows.IsVisible = visible;
+        }
+        private void DismissFailedFramesPanel()
+        {
+            if (_failedFramesPanel != null) _failedFramesPanel.IsVisible = false;
+            HideAnimationProgress();
+        }
+        //The pinned panel is only visible while an animation renders or while a failure report is waiting for action
+        private void HideAnimationProgress()
+        {
+            if (_animationProgressPanel == null) return;
+            SetAnimationRowsVisible(false);
+            _animationProgressPanel.IsVisible = _failedFramesPanel?.IsVisible == true;
+        }
+        private void HideAnimationProgressAsync() => Dispatcher.UIThread.Post(HideAnimationProgress);
         internal void ShowQueueAnimationFailures(QueueItem item)
         {
             if (item.Task is AnimationTask animation)
@@ -84,8 +113,8 @@ namespace LogicReinc.BlendFarm.Windows
                     OutputFrameStart = animation.StartFrame, OutputFrameEnd = animation.EndFrame
                 };
                 lock (Queue) Queue.Add(item);
-                RefreshQueueName();
-                ResumeQueue();
+                QueueMutated();
+                StartQueueIfAllowed("Failed frames of " + project.Name);
             });
         }
         private OutputNameContext BuildAnimationOutputContext(OpenBlenderProject project, RenderManagerSettings settings, int frame, int firstFrame, int lastFrame, DateTime timestamp)

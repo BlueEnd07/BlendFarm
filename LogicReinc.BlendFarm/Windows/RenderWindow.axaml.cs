@@ -314,13 +314,17 @@ namespace LogicReinc.BlendFarm.Windows
             Console.WriteLine("OS: " + OS);
             if(Manager?.Nodes != null)
             {
+                //With three or more nodes the cards start collapsed so several fit on screen
+                bool collapseCards = Manager.Nodes.Count >= 3;
                 foreach(RenderNode node in Manager.Nodes.ToList())
                 {
+                    if (collapseCards) node.IsInspectorExpanded = false;
                     Nodes.Add(node);
                     AttachNodeActivity(node);
                 }
                 Manager.OnNodeAdded += (manager, node) => Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    if (Nodes.Count >= 2) node.IsInspectorExpanded = false;
                     Nodes.Add(node);
                     AttachNodeActivity(node);
                     AddActivityLog($"{node.NodeTitle} added");
@@ -361,7 +365,7 @@ namespace LogicReinc.BlendFarm.Windows
             InitializePreviewFeatures();
             InitializeUserInputExtras();
             StartDiscoveryTracking();
-            _ = StartAutomaticNodeSetup();
+            _nodeSetupTask = StartAutomaticNodeSetup();
         }
 
         private void StartDiscoveryTracking()
@@ -765,7 +769,7 @@ namespace LogicReinc.BlendFarm.Windows
                 }
                 catch (Exception ex)
                 {
-                    node.UpdateException(NodeConnectionPolicy.DescribeFailure(ex));
+                    node.UpdateException(NodeConnectionPolicy.DescribeFailure(ex, node.Address));
                 }
             }));
         }
@@ -831,7 +835,7 @@ namespace LogicReinc.BlendFarm.Windows
                 }
                 catch (Exception ex)
                 {
-                    node.UpdateException(NodeConnectionPolicy.DescribeFailure(ex));
+                    node.UpdateException(NodeConnectionPolicy.DescribeFailure(ex, node.Address));
                 }
             }
             else
@@ -843,11 +847,11 @@ namespace LogicReinc.BlendFarm.Windows
             Manager.RemoveNode(node.Name);
 
             var nodeEntry = BlendFarmSettings.Instance.PastClients.FirstOrDefault(x => x.Key == node.Name).Key;
+            bool wasDisabled = BlendFarmSettings.Instance.DisabledNodes?.Remove(node.Name) == true;
             if (nodeEntry != null)
-            {
                 BlendFarmSettings.Instance.PastClients.Remove(nodeEntry);
+            if (nodeEntry != null || wasDisabled)
                 BlendFarmSettings.Instance.Save();
-            }
         }
 
         public void TerminalNode(RenderNode node)
@@ -1253,6 +1257,9 @@ namespace LogicReinc.BlendFarm.Windows
 
         private void ResetAnimationProgress(int startFrame, int endFrame)
         {
+            if (_failedFramesPanel != null)
+                _failedFramesPanel.IsVisible = false;
+            SetAnimationRowsVisible(true);
             if (_animationProgressPanel != null)
                 _animationProgressPanel.IsVisible = true;
             UpdateAnimationProgress(TimeSpan.Zero, startFrame, endFrame, 0, startFrame);
@@ -1367,7 +1374,10 @@ namespace LogicReinc.BlendFarm.Windows
         {
             if (!noSync && HasActiveQueueItems())
             {
-                StartQueueingProcess();
+                //Render Now is an explicit start: it overrides a pause or a pending schedule
+                if (_queueRunState.Paused || _queueRunState.ScheduledStart.HasValue)
+                    AddActivityLog("Render Now: starting the queue", ActivityLogType.Info);
+                ResumeQueue();
                 return true;
             }
 
@@ -1599,7 +1609,6 @@ namespace LogicReinc.BlendFarm.Windows
                 this._imageProgress.IsIndeterminate = true;
                 ResetRenderTiming();
                 ResetAnimationProgress(firstFrame, lastFrame);
-                if (_failedFramesPanel != null) _failedFramesPanel.IsVisible = false;
             });
 
             RenderManagerSettings settings = null;
@@ -1790,6 +1799,8 @@ namespace LogicReinc.BlendFarm.Windows
                 Manager.ClearLastTask();
                 DetachRenderTaskActivityLogging(rtask);
                 await ClearProjectTask(currentProject, rtask);
+                //Posted after any failure report, which keeps the panel up for the retry button
+                HideAnimationProgressAsync();
             }
         }
 
@@ -1839,17 +1850,23 @@ namespace LogicReinc.BlendFarm.Windows
         }
 
         //Queue
+        private int _queueLoopId = 0;
+
         public void StartQueueingProcess()
         {
             lock (_queueLoopLock)
             {
                 if (_queueTask != null)
                     return;
+                //A paused queue (or one waiting for its schedule) has no loop; Resume / the schedule timer start it.
+                if (!_queueRunState.CanStart(DateTimeOffset.Now))
+                    return;
 
                 SetQueueing(true);
                 _queueCts = new CancellationTokenSource();
                 CancellationToken token = _queueCts.Token;
-                _queueTask = Task.Run(() => RunQueueLoop(token));
+                int id = ++_queueLoopId;
+                _queueTask = Task.Run(() => RunQueueLoop(token, id));
             }
         }
 
@@ -1862,21 +1879,115 @@ namespace LogicReinc.BlendFarm.Windows
                 {
                     RaisePropertyChanged(IsQueueingProperty, old, value);
                     UpdatePresentationState();
+                    RefreshQueueTools();
                 });
         }
 
-        private async Task RunQueueLoop(CancellationToken token)
+        //Must hold _queueLoopLock. Idempotent per loop, and never touches a newer loop's state.
+        private void ReleaseQueueLoopLocked(int id)
+        {
+            if (id != _queueLoopId || _queueTask == null)
+                return;
+            _queueTask = null;
+            _queueCts?.Dispose();
+            _queueCts = null;
+            //The loop is gone, so the queue is no longer processing
+            SetQueueing(false);
+        }
+
+        //Decides under the loop lock whether the loop ends, so a concurrent Resume/Start can't be lost
+        //between "nothing to do" and the loop being released.
+        private bool TryEndQueueLoop(int id, out bool paused)
+        {
+            lock (_queueLoopLock)
+            {
+                paused = _queueRunState.Paused;
+                if (!_queueRunState.CanStart(DateTimeOffset.Now) || GetNextQueueItem() == null)
+                {
+                    ReleaseQueueLoopLocked(id);
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        private volatile bool _queueWaitingForNodes;
+
+        private enum QueueNodeStatus { Ready, Stop }
+
+        //Waits (bounded) for nodes that are connecting or auto-reconnecting; pauses the queue with a clear message
+        //instead of failing every item when no node becomes usable.
+        private async Task<QueueNodeStatus> WaitForQueueNodes(CancellationToken token)
+        {
+            DateTime started = DateTime.UtcNow;
+            bool logged = false;
+            try
+            {
+                while (true)
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (Manager == null)
+                        return QueueNodeStatus.Ready;
+                    var (usable, pending) = Manager.CountRenderNodes();
+                    switch (QueueNodeWait.Decide(usable, pending, DateTime.UtcNow - started))
+                    {
+                        case NodeWaitDecision.Ready:
+                            if (logged)
+                                Dispatcher.UIThread.Post(() => AddActivityLog("Render nodes connected; continuing the queue", ActivityLogType.Success));
+                            return QueueNodeStatus.Ready;
+                        case NodeWaitDecision.GiveUp:
+                            _queueRunState.Pause();
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                PersistQueueRunState();
+                                RefreshQueueTools();
+                                AddActivityLog("Queue paused: no enabled render node is connected. Connect a node (or enable one) and press Start / Resume.", ActivityLogType.Warning);
+                            });
+                            return QueueNodeStatus.Stop;
+                    }
+                    if (!logged)
+                    {
+                        logged = true;
+                        _queueWaitingForNodes = true;
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            AddActivityLog("Waiting for render nodes to connect (up to 2 minutes) before starting the queue", ActivityLogType.Warning);
+                            RefreshQueueTools();
+                        });
+                    }
+                    await Task.Delay(1000, token);
+                    if (!_queueRunState.CanStart(DateTimeOffset.Now))
+                        return QueueNodeStatus.Stop;
+                }
+            }
+            finally
+            {
+                if (_queueWaitingForNodes)
+                {
+                    _queueWaitingForNodes = false;
+                    Dispatcher.UIThread.Post(RefreshQueueTools);
+                }
+            }
+        }
+
+        private async Task RunQueueLoop(CancellationToken token, int id)
         {
             try
             {
-                while (IsQueueing && !token.IsCancellationRequested)
+                while (!token.IsCancellationRequested)
                 {
                     //Exceptions are handled per iteration, so "continue" really continues the queue
                     try
                     {
                         await Task.Delay(500, token);
 
-                        if (!_queueRunState.CanStart(DateTimeOffset.Now))
+                        //Paused, scheduled for later or empty: leave the loop so IsQueueing is released
+                        if (TryEndQueueLoop(id, out _))
+                        {
+                            return;
+                        }
+
+                        if (await WaitForQueueNodes(token) == QueueNodeStatus.Stop)
                             continue;
 
                         QueueItem item;
@@ -1884,7 +1995,7 @@ namespace LogicReinc.BlendFarm.Windows
                         {
                             item = GetNextQueueItem();
                             if (item == null)
-                                break;
+                                continue;
                             if (!TryBeginRender(item.Project))
                                 continue;
                             item.ReserveForExecution();
@@ -1899,7 +2010,7 @@ namespace LogicReinc.BlendFarm.Windows
                         }
 
                         //Don't pick the same item again while it is still settling
-                        while (item.Active && IsQueueing && !token.IsCancellationRequested)
+                        while (item.Active && !item.IsQueued && !_queueRunState.Paused && IsQueueing && !token.IsCancellationRequested)
                             await Task.Delay(500, token);
 
                         RefreshQueueName();
@@ -1923,17 +2034,11 @@ namespace LogicReinc.BlendFarm.Windows
             finally
             {
                 lock (_queueLoopLock)
-                {
-                    _queueTask = null;
-                    _queueCts?.Dispose();
-                    _queueCts = null;
-                    //The loop is gone, so the queue is no longer processing
-                    SetQueueing(false);
-                }
+                    ReleaseQueueLoopLocked(id);
                 RefreshQueueName();
             }
         }
-        
+
         public async Task AddToQueueReplace()
         {
             if (CurrentProject == null) return;
@@ -1968,7 +2073,7 @@ namespace LogicReinc.BlendFarm.Windows
             lock(Queue)
                 Queue.Add(item);
 
-            RefreshQueueName();
+            QueueMutated();
 
         }
         public async Task AddAnimationToQueueNew()
@@ -2010,7 +2115,7 @@ namespace LogicReinc.BlendFarm.Windows
 
             lock (Queue)
                 Queue.Add(item);
-            RefreshQueueName();
+            QueueMutated();
         }
         public QueueItem GetNextQueueItem()
         {
@@ -2023,7 +2128,7 @@ namespace LogicReinc.BlendFarm.Windows
                 Queue.Remove(item);
             if (item.Task != null && !item.Completed && item.Active)
                 item.CancelQueueItem();
-            RefreshQueueName();
+            QueueMutated();
         }
 
         //Persists the still-queued items to disk.
@@ -2089,7 +2194,7 @@ namespace LogicReinc.BlendFarm.Windows
                     if (Queue[i].IsDeletable)
                         Queue.RemoveAt(i);
             }
-            RefreshQueueName();
+            QueueMutated();
             AddActivityLog("Cleared queue", ActivityLogType.Info);
         }
 
@@ -2110,7 +2215,7 @@ namespace LogicReinc.BlendFarm.Windows
                     return;
                 Queue.Move(i, j);
             }
-            RefreshQueueName();
+            QueueMutated();
         }
 
         public void DuplicateQueueItem(QueueItem item)
@@ -2126,7 +2231,7 @@ namespace LogicReinc.BlendFarm.Windows
                 else
                     Queue.Insert(i + 1, copy);
             }
-            RefreshQueueName();
+            QueueMutated();
         }
 
         public async void BenchmarkNode(RenderNode node)

@@ -19,7 +19,7 @@ namespace LogicReinc.BlendFarm.Windows
         private readonly Dictionary<string, TextBox> _fields = new Dictionary<string, TextBox>();
         private readonly StackPanel _form = new StackPanel { Spacing = 8, Margin = new Thickness(18) };
         private readonly QueueItemDTO _draft;
-        private readonly TextBlock _error = new TextBlock { Foreground = Brushes.OrangeRed, TextWrapping = TextWrapping.Wrap };
+        private readonly TextBlock _error = new TextBlock { Foreground = ThemeBrushes.Error, TextWrapping = TextWrapping.Wrap };
         public QueueItemEditWindow(QueueItem item)
         {
             _draft = System.Text.Json.JsonSerializer.Deserialize<QueueItemDTO>(System.Text.Json.JsonSerializer.Serialize(item.ToDTO()));
@@ -28,28 +28,32 @@ namespace LogicReinc.BlendFarm.Windows
             Height = 760;
             MinHeight = 400;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Background = new SolidColorBrush(Color.Parse("#262626"));
+            Background = ThemeBrushes.Window;
             int scale = Math.Max(1, _draft.ResolutionScale);
             AddField("Width", Math.Round(_draft.Settings.OutputWidth * 100.0 / scale).ToString(CultureInfo.InvariantCulture));
             AddField("Height", Math.Round(_draft.Settings.OutputHeight * 100.0 / scale).ToString(CultureInfo.InvariantCulture));
             AddField("Scale (%)", scale.ToString());
             AddField("Samples", _draft.Settings.Samples.ToString());
-            AddField("Frame start", _draft.Settings.Frame.ToString());
-            AddField("Frame end", item.GetFrameNumbers().Last().ToString());
-            AddField("Step", Math.Max(1, item.FrameStep).ToString());
-            AddField("Frames (override)", item.FrameList);
+            bool animation = item.IsAnimation;
+            AddField("Frame start", _draft.Settings.Frame.ToString(), animation ? null : "Frame");
+            AddField("Frame end", item.GetFrameNumbers().Last().ToString(), null, animation);
+            AddField("Step", Math.Max(1, item.FrameStep).ToString(), null, animation);
+            AddField("Frames (override)", item.FrameList, null, animation);
             AddField("Output path", item.SaveTo);
-            AddField("Frame filename", item.FrameFormat);
+            AddField("Frame filename", item.FrameFormat, null, animation);
             var format = new ComboBox { Items = ImageFormats.Formats, SelectedItem = _draft.Settings.RenderFormat };
             AddControl("Format", format);
             var engine = new ComboBox { Items = Enum.GetValues(typeof(EngineType)), SelectedItem = _draft.Settings.Engine };
             AddControl("Engine", engine);
-            AddField("Denoiser", _draft.Settings.Denoiser);
-            AddField("Scene", _draft.Settings.Scene);
-            AddField("Camera", _draft.Settings.Camera);
-            var encode = new CheckBox { Content = "Encode MP4 when done", IsChecked = _draft.EncodeMp4, IsVisible = item.IsAnimation };
+            var denoiser = new ComboBox { Items = WithCurrent(DenoiserChoices, _draft.Settings.Denoiser), SelectedItem = string.IsNullOrEmpty(_draft.Settings.Denoiser) ? "Inherit" : _draft.Settings.Denoiser };
+            AddControl("Denoiser", denoiser);
+            var scene = ProjectChoiceBox(item.Project?.ScenesAvailable, _draft.Settings.Scene);
+            AddControl("Scene", scene);
+            var camera = ProjectChoiceBox(item.Project?.CamerasAvailable, _draft.Settings.Camera);
+            AddControl("Camera", camera);
+            var encode = new CheckBox { Content = "Encode MP4 when done", IsChecked = _draft.EncodeMp4, IsVisible = animation };
             _form.Children.Add(encode);
-            AddField("MP4 FPS", Math.Max(1, _draft.EncodingFPS).ToString());
+            AddField("MP4 FPS", Math.Max(1, _draft.EncodingFPS).ToString(), null, animation);
             _form.Children.Add(_error);
             var save = new Button { Content = "Apply changes", HorizontalAlignment = HorizontalAlignment.Right };
             save.Click += (_, __) =>
@@ -80,9 +84,9 @@ namespace LogicReinc.BlendFarm.Windows
                     _draft.Settings.RenderFormat = (string)format.SelectedItem ?? "PNG";
                     if (item.IsAnimation) _draft.FrameFormat = Path.ChangeExtension(_draft.FrameFormat, ImageFormats.GetExtension(_draft.Settings.RenderFormat));
                     _draft.Settings.Engine = (EngineType)engine.SelectedItem;
-                    _draft.Settings.Denoiser = _fields["Denoiser"].Text ?? "";
-                    _draft.Settings.Scene = _fields["Scene"].Text ?? "";
-                    _draft.Settings.Camera = _fields["Camera"].Text ?? "";
+                    _draft.Settings.Denoiser = denoiser.SelectedItem as string ?? "Inherit";
+                    _draft.Settings.Scene = ChoiceValue(scene);
+                    _draft.Settings.Camera = ChoiceValue(camera);
                     _draft.EncodeMp4 = encode.IsChecked == true;
                     _draft.EncodingFPS = Number("MP4 FPS", 1, 240);
                     _draft.OutputTimestamp = null;
@@ -95,19 +99,34 @@ namespace LogicReinc.BlendFarm.Windows
             _form.Children.Add(save);
             Content = new ScrollViewer { Content = _form };
         }
-        private void AddField(string label, string text)
+        private static readonly string[] DenoiserChoices = { "Inherit", "None", "NLM", "OPTIX", "OPENIMAGEDENOISE" };
+        private const string DefaultChoice = "(project default)";
+        private static string[] WithCurrent(string[] choices, string current)
+            => string.IsNullOrEmpty(current) || choices.Contains(current) ? choices : choices.Concat(new[] { current }).ToArray();
+        //Scenes / cameras read from the project when it has been inspected, otherwise only the item's current value is offered
+        private static ComboBox ProjectChoiceBox(IEnumerable<string> available, string current)
+        {
+            var items = new List<string> { DefaultChoice };
+            if (available != null) items.AddRange(available.Where(name => !string.IsNullOrEmpty(name)));
+            if (!string.IsNullOrEmpty(current) && !items.Contains(current)) items.Add(current);
+            return new ComboBox { Items = items, SelectedItem = string.IsNullOrEmpty(current) ? DefaultChoice : current };
+        }
+        private static string ChoiceValue(ComboBox box)
+            => box.SelectedItem is string value && value != DefaultChoice ? value : "";
+        private void AddField(string label, string text, string displayLabel = null, bool visible = true)
         {
             var field = new TextBox { Text = text ?? "" };
             _fields.Add(label, field);
-            AddControl(label, field);
+            AddControl(displayLabel ?? label, field).IsVisible = visible;
         }
-        private void AddControl(string label, Control control)
+        private Grid AddControl(string label, Control control)
         {
             var row = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*") };
             row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
             Grid.SetColumn(control, 1);
             row.Children.Add(control);
             _form.Children.Add(row);
+            return row;
         }
         private int Number(string field, int minimum, int maximum)
         {

@@ -96,6 +96,7 @@ namespace LogicReinc.BlendFarm.Windows
             if (!string.IsNullOrEmpty(entryKey))
                 BlendFarmSettings.Instance.PastClients.Remove(entryKey);
 
+            BlendFarmSettings.Instance.RenameNodeFlags(originalNodeName, newName);
             Node.Name = newName;
             Node.RenderType = selectRenderType.SelectedItem is RenderType type ? type : RenderType.OPTIX_GPUONLY;
 

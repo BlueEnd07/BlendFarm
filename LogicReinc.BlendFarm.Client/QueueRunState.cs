@@ -29,7 +29,7 @@ namespace LogicReinc.BlendFarm.Client
         }
         public static DateTimeOffset ParseLocalStart(DateTime today, bool tomorrow, string time)
         {
-            if (!DateTime.TryParseExact(time, "HH:mm", System.Globalization.CultureInfo.InvariantCulture,
+            if (!DateTime.TryParseExact((time ?? "").Trim(), new[] { "H:mm", "HH:mm" }, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.None, out DateTime parsed))
                 throw new FormatException("Enter a time as HH:mm, for example 18:30.");
             DateTime local = DateTime.SpecifyKind(today.Date.AddDays(tomorrow ? 1 : 0).Add(parsed.TimeOfDay), DateTimeKind.Unspecified);
@@ -37,6 +37,26 @@ namespace LogicReinc.BlendFarm.Client
                 throw new FormatException("That time does not exist because the clocks change. Choose another time.");
             return new DateTimeOffset(local, TimeZoneInfo.Local.GetUtcOffset(local));
         }
+    }
+
+    public enum NodeWaitDecision { Ready, Wait, GiveUp }
+
+    /// <summary>Decides whether a queue item may start while render nodes are (re)connecting.</summary>
+    public static class QueueNodeWait
+    {
+        public static readonly TimeSpan MaxWait = TimeSpan.FromMinutes(2);
+
+        /// <param name="usableNodes">Enabled and connected nodes.</param>
+        /// <param name="pendingNodes">Enabled nodes that are connecting or auto-reconnecting.</param>
+        public static NodeWaitDecision Decide(int usableNodes, int pendingNodes, TimeSpan waited)
+        {
+            if (usableNodes > 0) return NodeWaitDecision.Ready;
+            return pendingNodes > 0 && waited < MaxWait ? NodeWaitDecision.Wait : NodeWaitDecision.GiveUp;
+        }
+
+        /// <summary>An overdue schedule right after launch waits for automatic node setup (bounded by <see cref="MaxWait"/>).</summary>
+        public static bool ShouldDelayScheduledStart(int usableNodes, int pendingNodes, bool setupRunning, TimeSpan sinceStartup)
+            => usableNodes == 0 && (pendingNodes > 0 || setupRunning) && sinceStartup < MaxWait;
     }
 
     public static class QueueEstimate

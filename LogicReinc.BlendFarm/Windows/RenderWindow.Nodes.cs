@@ -25,11 +25,11 @@ namespace LogicReinc.BlendFarm.Windows
 
         private void AttachNodeManagement(RenderNode node)
         {
-            if (BlendFarmSettings.Instance.PastClients.TryGetValue(node.Name, out var saved))
-                node.IsEnabled = saved.IsEnabled;
+            node.IsEnabled = BlendFarmSettings.Instance.IsNodeEnabled(node.Name);
             node.ConfigureReconnect(AutoReconnectNodes, () => Version.Name);
             node.PropertyChanged += NodeManagementChanged;
             node.ConnectionFailed += NodeConnectionFailed;
+            node.ReconnectPhaseChanged += NodeReconnectPhaseChanged;
         }
 
         private void DetachNodeManagement(RenderNode node)
@@ -37,7 +37,26 @@ namespace LogicReinc.BlendFarm.Windows
             node.ConfigureReconnect(false, null);
             node.PropertyChanged -= NodeManagementChanged;
             node.ConnectionFailed -= NodeConnectionFailed;
+            node.ReconnectPhaseChanged -= NodeReconnectPhaseChanged;
         }
+
+        //One warning when reconnecting starts and one when it ends, not an error per attempt
+        private void NodeReconnectPhaseChanged(RenderNode node, ReconnectPhase phase)
+            => Dispatcher.UIThread.Post(() =>
+            {
+                switch (phase)
+                {
+                    case ReconnectPhase.Started:
+                        AddActivityLog($"{node.NodeTitle}: connection lost, reconnecting automatically", ActivityLogType.Warning);
+                        break;
+                    case ReconnectPhase.Succeeded:
+                        AddActivityLog($"{node.NodeTitle}: reconnected", ActivityLogType.Success);
+                        break;
+                    default:
+                        AddActivityLog($"{node.NodeTitle}: stopped reconnecting", ActivityLogType.Warning);
+                        break;
+                }
+            });
 
         private void NodeConnectionFailed(RenderNode node, string message)
             => Dispatcher.UIThread.Post(() => AddActivityLog($"{node.NodeTitle}: {message}", ActivityLogType.Error));
@@ -48,17 +67,7 @@ namespace LogicReinc.BlendFarm.Windows
             Dispatcher.UIThread.Post(() =>
             {
                 var settings = BlendFarmSettings.Instance;
-                if (!settings.PastClients.TryGetValue(node.Name, out var saved))
-                {
-                    saved = new BlendFarmSettings.HistoryClient
-                    {
-                        Name = node.Name, Address = node.Address, Pass = node.Pass,
-                        RenderType = node.RenderType, Performance = node.Performance,
-                        PerformanceScorePP = node.PerformanceScorePP
-                    };
-                    settings.PastClients[node.Name] = saved;
-                }
-                saved.IsEnabled = node.IsEnabled;
+                settings.SetNodeEnabled(node.Name, node.IsEnabled);
                 settings.TrySave();
                 AddActivityLog($"{node.NodeTitle} {(node.IsEnabled ? "enabled" : "disabled")} for rendering");
             });
@@ -73,7 +82,7 @@ namespace LogicReinc.BlendFarm.Windows
         public async void ConnectManagedNode(RenderNode node)
         {
             try { await node.ConnectAndPrepare(Version.Name); }
-            catch (Exception error) { node.UpdateException(NodeConnectionPolicy.DescribeFailure(error)); }
+            catch (Exception error) { node.UpdateException(NodeConnectionPolicy.DescribeFailure(error, node.Address)); }
         }
 
         public async void ConnectSelectedNodes()
@@ -83,7 +92,7 @@ namespace LogicReinc.BlendFarm.Windows
             await Task.WhenAll(selected.Select(async node =>
             {
                 try { await node.ConnectAndPrepare(Version.Name); }
-                catch (Exception error) { node.UpdateException(NodeConnectionPolicy.DescribeFailure(error)); }
+                catch (Exception error) { node.UpdateException(NodeConnectionPolicy.DescribeFailure(error, node.Address)); }
             }));
         }
 

@@ -34,36 +34,41 @@
     <!--SECTION: Node inspector-->
     <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource BlendFarmSurfaceBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="0,0,1,0">
       <Grid RowDefinitions="Auto,*,Auto" Margin="14">
-        <StackPanel Grid.Row="0" Margin="0,8,0,16">
-          <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+        <StackPanel Grid.Row="0" Margin="0,4,0,10">
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <Image Source="/Images/header.png" Width="34" Height="34" Margin="0,0,10,0"/>
             <StackPanel VerticalAlignment="Center">
               <TextBlock Foreground="{StaticResource BlendFarmTextBrush}" FontSize="18" FontWeight="Bold">BlendFarm</TextBlock>
               <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11">LOCAL NETWORK</TextBlock>
             </StackPanel>
           </StackPanel>
-          <Border Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
-            <StackPanel>
-              <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" Margin="0,0,0,5">NODE INSPECTOR</TextBlock>
-              <TextBlock Foreground="{StaticResource BlendFarmTextBrush}" FontSize="20" FontWeight="Bold" Text="{Binding Nodes.Count}"/>
-              <TextBlock Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12">configured systems</TextBlock>
-            </StackPanel>
+          <Border Background="{StaticResource BlendFarmPanelBrush}" BorderBrush="{StaticResource BlendFarmBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Grid.Column="0" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" VerticalAlignment="Center">NODE INSPECTOR</TextBlock>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                <TextBlock Foreground="{StaticResource BlendFarmTextBrush}" FontSize="16" FontWeight="Bold" Text="{Binding Nodes.Count}"/>
+                <TextBlock Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12" VerticalAlignment="Center">configured systems</TextBlock>
+              </StackPanel>
+            </Grid>
           </Border>
-          <Grid ColumnDefinitions="*,*" Margin="0,10,0,0">
-            <Button Grid.Column="0" Padding="10,8" Margin="0,0,6,0" Command="{Binding ConnectAll}" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}" Foreground="{StaticResource BlendFarmOnAccentBrush}">Connect All</Button>
-            <Button Grid.Column="1" Padding="10,8" Margin="6,0,0,0" Command="{Binding SyncAll}" Background="{StaticResource BlendFarmButtonBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}">Sync All</Button>
+          <Grid ColumnDefinitions="*,*" Margin="0,8,0,0">
+            <Button Grid.Column="0" Padding="10,6" Margin="0,0,6,0" Command="{Binding ConnectAll}" Background="{StaticResource BlendFarmAccentBrush}" BorderBrush="{StaticResource BlendFarmAccentBorderBrush}" Foreground="{StaticResource BlendFarmOnAccentBrush}">Connect All</Button>
+            <Button Grid.Column="1" Padding="10,6" Margin="6,0,0,0" Command="{Binding SyncAll}" Background="{StaticResource BlendFarmButtonBrush}" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}">Sync All</Button>
           </Grid>
-          <WrapPanel Margin="0,6,0,0">
-            <Button Command="{Binding SelectAllNodes}" Padding="6,4" Margin="0,0,4,4">Select all</Button>
-            <Button Command="{Binding SelectNoNodes}" Padding="6,4" Margin="0,0,4,4">None</Button>
-            <Button Command="{Binding ConnectSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Connect selected</Button>
-            <Button Command="{Binding SyncSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Sync selected</Button>
-            <Button Command="{Binding BenchmarkSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Benchmark selected</Button>
-            <Button Command="{Binding EnableSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Enable selected</Button>
-            <Button Command="{Binding DisableSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Disable selected</Button>
-            <Button Command="{Binding RemoveSelectedNodes}" Padding="6,4" Margin="0,0,4,4">Remove selected</Button>
+          <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+            <CheckBox Grid.Column="0" IsChecked="{Binding AutoReconnectNodes, Mode=TwoWay}" Content="Auto-reconnect nodes" FontSize="12" MinHeight="24" VerticalAlignment="Center" ToolTip.Tip="Reconnect a node automatically when its connection drops"/>
+            <ToggleButton Grid.Column="1" x:Name="bulkToggle" Padding="8,2" FontSize="11" MinHeight="24" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Show actions for the nodes ticked with Select in their cards">Bulk actions &#9662;</ToggleButton>
+          </Grid>
+          <WrapPanel Margin="0,4,0,0" IsVisible="{Binding #bulkToggle.IsChecked}">
+            <Button Command="{Binding SelectAllNodes}" Padding="6,2" FontSize="11" Margin="0,0,4,4" ToolTip.Tip="Tick every node">Select all</Button>
+            <Button Command="{Binding SelectNoNodes}" Padding="6,2" FontSize="11" Margin="0,0,4,4" ToolTip.Tip="Untick every node">None</Button>
+            <Button Command="{Binding ConnectSelectedNodes}" Padding="6,2" FontSize="11" Margin="0,0,4,4" ToolTip.Tip="Connect selected nodes">Connect</Button>
+            <Button Command="{Binding SyncSelectedNodes}" Padding="6,2" FontSize="11" Margin="0,0,4,4" ToolTip.Tip="Sync the project to selected nodes">Sync</Button>
+            <Button Command="{Binding BenchmarkSelectedNodes}" Padding="6,2" FontSize="11" Margin="0,0,4,4" ToolTip.Tip="Benchmark selected nodes">Benchmark</Button>
+            <Button Command="{Binding EnableSelectedNodes}" Padding="6,2" FontSize="11" Margin="0,0,4,4" ToolTip.Tip="Use selected nodes for rendering">Enable</Button>
+            <Button Command="{Binding DisableSelectedNodes}" Padding="6,2" FontSize="11" Margin="0,0,4,4" ToolTip.Tip="Stop using selected nodes for rendering">Disable</Button>
+            <Button Command="{Binding RemoveSelectedNodes}" Padding="6,2" FontSize="11" Margin="0,0,4,4" ToolTip.Tip="Disconnect and remove selected nodes">Remove</Button>
           </WrapPanel>
-          <CheckBox IsChecked="{Binding AutoReconnectNodes, Mode=TwoWay}" Content="Auto-reconnect nodes" Margin="0,4,0,4"/>
         </StackPanel>
         <TabControl Grid.Row="1" Margin="0">
           <!--SECTION: Nodes-->
@@ -98,7 +103,7 @@
                             </Grid>
                             <StackPanel Grid.Column="1" Margin="8,0,6,0">
                               <TextBlock Text="{Binding NodeTitle}" Foreground="{StaticResource BlendFarmTextBrush}" FontWeight="Bold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding NodeTitle}"/>
-                              <TextBlock Text="{Binding Address}" Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                              <TextBlock Text="{Binding Address}" Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Address}"/>
                               <TextBlock Text="Disabled" IsVisible="{Binding !IsEnabled}" FontSize="10" FontWeight="Bold" Foreground="{StaticResource BlendFarmWarningBrush}"/>
                             </StackPanel>
                             <Border Grid.Column="2" Background="{StaticResource BlendFarmSuccessBackgroundBrush}" BorderBrush="{StaticResource BlendFarmSuccessBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="5,2" IsVisible="{Binding Connected}">
@@ -411,6 +416,29 @@
                 <TextBlock Grid.Column="0" Foreground="{StaticResource BlendFarmLabelBrush}" TextAlignment="Left" Margin="0,4,8,4">Estimated Remaining</TextBlock>
                 <TextBlock Grid.Column="1" x:Name="estimatedRenderTime" Foreground="{StaticResource BlendFarmTextBrush}" Margin="0,4,8,4">...</TextBlock>
               </Grid>
+              <!--SECTION: Animation progress (pinned, shown only while animating or when frames failed)-->
+              <Border x:Name="animationProgressPanel" IsVisible="False" Background="{StaticResource BlendFarmRaisedBrush}" BorderBrush="{StaticResource BlendFarmDividerBrush}" BorderThickness="1" CornerRadius="4" Margin="14,4,14,0" Padding="10,7">
+                <StackPanel>
+                  <StackPanel x:Name="animationProgressRows">
+                    <Grid ColumnDefinitions="*,*,*">
+                      <StackPanel Grid.Column="0">
+                        <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="10">FRAMES RENDERED</TextBlock>
+                        <TextBlock x:Name="animationFramesRendered" FontSize="12">--</TextBlock>
+                      </StackPanel>
+                      <StackPanel Grid.Column="1">
+                        <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="10">CURRENT FRAME</TextBlock>
+                        <TextBlock x:Name="animationCurrentFrame" FontSize="12">--</TextBlock>
+                      </StackPanel>
+                      <StackPanel Grid.Column="2">
+                        <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="10">REMAINING</TextBlock>
+                        <TextBlock x:Name="animationEstimatedRemaining" FontSize="12" TextTrimming="CharacterEllipsis">--</TextBlock>
+                      </StackPanel>
+                    </Grid>
+                    <ProgressBar x:Name="animationTimelineProgress" Minimum="0" Maximum="100" Height="6" Margin="0,6,0,4"/>
+                    <TextBlock x:Name="animationTimeline" FontFamily="Consolas" FontSize="10" Foreground="{StaticResource BlendFarmMutedTextBrush}" TextAlignment="Center" TextTrimming="CharacterEllipsis">--</TextBlock>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
             </StackPanel>
             <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
               <StackPanel>
@@ -602,22 +630,6 @@
                     </StackPanel>
                   </Border>
                 </Expander>
-                <!--SECTION: Animation progress-->
-                <Border x:Name="animationProgressPanel" IsVisible="False" Background="{StaticResource BlendFarmRaisedBrush}" BorderBrush="{StaticResource BlendFarmDividerBrush}" BorderThickness="1" CornerRadius="4" Margin="14,4,14,5" Padding="12">
-                  <StackPanel>
-                    <TextBlock Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="11" Margin="0,0,0,8">ANIMATION PROGRESS</TextBlock>
-                    <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto">
-                      <TextBlock Grid.Row="0" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,2,8,2">Frames Rendered</TextBlock>
-                      <TextBlock Grid.Row="0" Grid.Column="1" x:Name="animationFramesRendered" Margin="0,2,0,2">--</TextBlock>
-                      <TextBlock Grid.Row="1" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,2,8,2">Current Frame</TextBlock>
-                      <TextBlock Grid.Row="1" Grid.Column="1" x:Name="animationCurrentFrame" Margin="0,2,0,2">--</TextBlock>
-                      <TextBlock Grid.Row="2" Grid.Column="0" Foreground="{StaticResource BlendFarmMutedTextBrush}" Margin="0,2,8,2">Estimated Remaining</TextBlock>
-                      <TextBlock Grid.Row="2" Grid.Column="1" x:Name="animationEstimatedRemaining" Margin="0,2,0,2">--</TextBlock>
-                    </Grid>
-                    <ProgressBar x:Name="animationTimelineProgress" Minimum="0" Maximum="100" Height="8" Margin="0,10,0,8"/>
-                    <TextBlock x:Name="animationTimeline" FontFamily="Consolas" Foreground="{StaticResource BlendFarmMutedTextBrush}" TextAlignment="Center">--</TextBlock>
-                  </StackPanel>
-                </Border>
               </StackPanel>
             </ScrollViewer>
           </Grid>
@@ -650,13 +662,14 @@
                       <StackPanel Grid.Row="0" Grid.Column="0" MinWidth="0">
                         <TextBlock Text="{Binding Name}" Foreground="{StaticResource BlendFarmTextBrush}" FontWeight="Bold" FontSize="14" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding SettingsSummary}" Foreground="{StaticResource BlendFarmMutedTextBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,3,8,0"/>
-                        <TextBlock Text="{Binding State}" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="12" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding State}" Foreground="{StaticResource BlendFarmSubtleTextBrush}" FontSize="12" Margin="0,3,8,0" TextWrapping="Wrap" ToolTip.Tip="{Binding State}"/>
                         <TextBlock Text="{Binding FailedFramesSummary}" IsVisible="{Binding HasFailedFrames}" Foreground="{StaticResource BlendFarmErrorBrush}" FontSize="12" TextWrapping="Wrap"/>
                         <Button Content="Re-render failed frames" IsVisible="{Binding HasFailedFrames}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=RetryFailedQueueFrames}" CommandParameter="{Binding .}" Margin="0,6,0,0"/>
                       </StackPanel>
                       <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
                         <Button Padding="8,5" Margin="0,0,6,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=EditQueueItem}" CommandParameter="{Binding .}">Edit</Button>
                         <Button Padding="8,5" Margin="0,0,6,0" IsVisible="{Binding IsFailed}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=RetryQueueItem}" CommandParameter="{Binding .}">Retry</Button>
+                        <Button Padding="8,5" Margin="0,0,6,0" IsVisible="{Binding CanRequeue}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=RequeueQueueItem}" CommandParameter="{Binding .}" ToolTip.Tip="Put this cancelled item back in the queue">Requeue</Button>
                         <Button Padding="7,5" Width="30" Margin="0,0,4,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=MoveQueueItemUp}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Move up">↑</Button>
                         <Button Padding="7,5" Width="30" Margin="0,0,4,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=MoveQueueItemDown}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Move down">↓</Button>
                         <Button Padding="7,5" Width="30" Margin="0,0,6,0" IsVisible="{Binding IsQueued}" Command="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=DuplicateQueueItem}" CommandParameter="{Binding .}" Background="Transparent" BorderBrush="{StaticResource BlendFarmSoftBorderBrush}" ToolTip.Tip="Duplicate">⧉</Button>
