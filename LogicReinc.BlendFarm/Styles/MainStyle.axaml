@@ -1,5 +1,25 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <SolidColorBrush x:Key="BlendFarmLabelBrush" Color="#B8B8B8" />
+    <SolidColorBrush x:Key="BlendFarmCardBrush" Color="#202020" />
+    <SolidColorBrush x:Key="BlendFarmControlTextBrush" Color="#D9DEF0" />
+    <SolidColorBrush x:Key="BlendFarmInsetBrush" Color="#1A1A1A" />
+    <SolidColorBrush x:Key="BlendFarmRaisedBrush" Color="#2A2A2A" />
+    <SolidColorBrush x:Key="BlendFarmDividerBrush" Color="#505050" />
+    <SolidColorBrush x:Key="BlendFarmHintBrush" Color="#8A90A6" />
+    <SolidColorBrush x:Key="BlendFarmOnAccentBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="BlendFarmErrorBrush" Color="#FF5066" />
+    <SolidColorBrush x:Key="BlendFarmWarningBrush" Color="#D6B94A" />
+    <SolidColorBrush x:Key="BlendFarmSuccessBrush" Color="#12C979" />
+    <SolidColorBrush x:Key="BlendFarmSuccessBackgroundBrush" Color="#182D26" />
+    <SolidColorBrush x:Key="BlendFarmSuccessBorderBrush" Color="#245C45" />
+    <SolidColorBrush x:Key="BlendFarmErrorBackgroundBrush" Color="#321D28" />
+    <SolidColorBrush x:Key="BlendFarmErrorBorderBrush" Color="#6A2637" />
+    <SolidColorBrush x:Key="BlendFarmDangerBrush" Color="#B91C1C" />
+    <SolidColorBrush x:Key="BlendFarmDangerBorderBrush" Color="#EF4444" />
+  </Styles.Resources>
   <Style Selector="TextBlock">
     <Setter Property="Foreground" Value="{DynamicResource BlendFarmTextBrush}" />
   </Style>

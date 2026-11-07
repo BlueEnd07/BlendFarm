@@ -70,6 +70,22 @@ namespace LogicReinc.BlendFarm
         /// </summary>
         public List<QueueItemDTO> RenderQueue { get; set; } = new List<QueueItemDTO>();
 
+        /// <summary>Main-window layout in logical units (position uses desktop pixels).</summary>
+        public RenderWindowLayout WindowLayout { get; set; } = new RenderWindowLayout();
+        public Dictionary<string, bool> ExpandedRenderSections { get; set; } = new Dictionary<string, bool>();
+
+        public class RenderWindowLayout
+        {
+            public double Width { get; set; } = 1400;
+            public double Height { get; set; } = 975;
+            public int? X { get; set; }
+            public int? Y { get; set; }
+            public bool Maximized { get; set; }
+            public double LeftWidth { get; set; } = 380;
+            public double RightWidth { get; set; } = 460;
+            public double ActivityHeight { get; set; } = 280;
+        }
+
 
         public void ApplyProjectSettings(string fileName, UIProjectSettings settings)
         {
