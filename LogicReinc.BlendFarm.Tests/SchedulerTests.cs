@@ -19,7 +19,7 @@ namespace LogicReinc.BlendFarm.Tests
     /// Drives the render scheduler with fake nodes, no Blender or network needed
     /// </summary>
     [TestClass]
-    public class SchedulerTests
+    public partial class SchedulerTests
     {
         [TestMethod]
         public async Task DisabledNode_DoesNotReceiveScheduledFrames()

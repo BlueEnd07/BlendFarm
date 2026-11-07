@@ -18,7 +18,7 @@ using System.Threading.Tasks;
 
 namespace LogicReinc.BlendFarm.Objects
 {
-    public class QueueItem : INotifyPropertyChanged
+    public partial class QueueItem : INotifyPropertyChanged
     {
         private RenderWindow _owner = null;
 
@@ -37,16 +37,16 @@ namespace LogicReinc.BlendFarm.Objects
 
         public bool Cancelled { get; set; }
 
-        public bool IsRendering => Task != null && !Cancelled && !Completed;
-        public bool IsCancelable => IsRendering;
+        public bool IsRendering => _executing;
+        public bool IsCancelable => IsRendering && !Cancelled;
         public bool IsDeletable => !IsRendering;
-        public bool IsQueued => !Cancelled && !Completed && Task == null;
+        public bool IsQueued => !_executing && !Cancelled && !Completed && Task == null;
 
 
         public string Name => Project?.Name;
-        public bool IsAnimation => Frames > 1;
+        public bool IsAnimation => Animation || FrameNumbers != null || Frames > 1;
         public string RenderKind => IsAnimation ? "Animation" : "Image";
-        public string FrameRangeDisplay => IsAnimation ? $"{Settings.Frame} - {Settings.Frame + Frames - 1}" : Settings.Frame.ToString();
+        public string FrameRangeDisplay => FrameNumbers != null ? string.Join(", ", FrameNumbers.Take(12)) + (FrameNumbers.Length > 12 ? " ..." : "") : (IsAnimation ? $"{Settings.Frame} - {Settings.Frame + Frames - 1}" : Settings.Frame.ToString());
         public string ResolutionDisplay => $"{Settings.OutputWidth} x {Settings.OutputHeight}";
         public string SceneDisplay => string.IsNullOrWhiteSpace(Settings.Scene) ? "Default" : Settings.Scene;
         public string CameraDisplay => string.IsNullOrWhiteSpace(Settings.Camera) ? "Default" : Settings.Camera;
@@ -94,6 +94,8 @@ namespace LogicReinc.BlendFarm.Objects
             Project = proj;
             Settings = settings;
             SaveTo = saveTo;
+            ResolutionScale = proj?.RenderScale ?? 100;
+            SkipExistingFrames = proj?.SkipExistingFrames;
         }
 
         private static string CompactPath(string path)
@@ -128,6 +130,17 @@ namespace LogicReinc.BlendFarm.Objects
                 Frames = Frames,
                 FrameFormat = FrameFormat,
                 SaveTo = SaveTo,
+                Animation = IsAnimation,
+                FrameNumbers = FrameNumbers,
+                FrameStep = FrameStep,
+                FrameList = FrameList,
+                ResolutionScale = ResolutionScale,
+                EncodeMp4 = EncodeMp4,
+                EncodingFPS = EncodingFPS,
+                SkipExistingFrames = SkipExistingFrames,
+                OutputTimestamp = OutputTimestamp,
+                OutputFrameStart = OutputFrameStart,
+                OutputFrameEnd = OutputFrameEnd,
                 UseNetworkedPath = Project?.UseNetworkedPath ?? false,
                 NetworkPathWindows = Project?.NetworkPathWindows,
                 NetworkPathLinux = Project?.NetworkPathLinux,
@@ -150,6 +163,17 @@ namespace LogicReinc.BlendFarm.Objects
 
             return new QueueItem(owner, proj, settings, dto.SaveTo, Math.Max(1, dto.Frames))
             {
+                Animation = dto.Animation,
+                FrameNumbers = dto.FrameNumbers?.ToArray(),
+                FrameStep = dto.FrameStep,
+                FrameList = dto.FrameList,
+                ResolutionScale = dto.ResolutionScale,
+                EncodeMp4 = dto.EncodeMp4,
+                EncodingFPS = dto.EncodingFPS,
+                SkipExistingFrames = dto.SkipExistingFrames,
+                OutputTimestamp = dto.OutputTimestamp,
+                OutputFrameStart = dto.OutputFrameStart,
+                OutputFrameEnd = dto.OutputFrameEnd,
                 FrameFormat = string.IsNullOrEmpty(dto.FrameFormat) ? "#.png" : dto.FrameFormat
             };
         }
@@ -180,15 +204,15 @@ namespace LogicReinc.BlendFarm.Objects
                 Width = Settings.OutputWidth,
                 Height = Settings.OutputHeight,
                 Frame = frame,
-                StartFrame = startFrame,
-                EndFrame = endFrame,
+                StartFrame = OutputFrameStart ?? startFrame,
+                EndFrame = OutputFrameEnd ?? endFrame,
                 Timestamp = _runTimestamp
             };
         }
 
         private RenderCompletionInfo BuildCompletionInfo(bool success, TimeSpan elapsed, string error, BlendFarmManager manager)
         {
-            int endFrame = Settings.Frame + Math.Max(1, Frames) - 1;
+            int endFrame = IsAnimation ? GetFrameNumbers().Last() : Settings.Frame;
             return new RenderCompletionInfo()
             {
                 SceneName = string.IsNullOrEmpty(Settings?.Scene) ? Project?.Name : Settings.Scene,
@@ -210,11 +234,17 @@ namespace LogicReinc.BlendFarm.Objects
 
         public async Task Execute(RenderWindow window, BlendFarmManager manager)
         {
-            _runTimestamp = DateTime.Now;
+            _executing = true;
+            RefreshInfo();
+            _runTimestamp = OutputTimestamp ?? DateTime.Now;
+            OutputTimestamp = _runTimestamp;
             Stopwatch queueWatch = Stopwatch.StartNew();
+            int savedFrames = 0;
             try
             {
-                if (Frames <= 1)
+                OutputFrameStart ??= Settings.Frame;
+                OutputFrameEnd ??= IsAnimation ? GetFrameNumbers().Last() : Settings.Frame;
+                if (!IsAnimation)
                 {
                     //Normal Render
                     //Coalesced tile previews, pixels are copied off the UI thread
@@ -244,6 +274,8 @@ namespace LogicReinc.BlendFarm.Objects
                     else
                         await manager.Sync(Project.BlendFile, Project.NetworkPathWindows, Project.NetworkPathLinux, Project.NetworkPathMacOS);
                     await System.Threading.Tasks.Task.Delay(500);
+
+                    if (Cancelled) { await Task.Cancel(); StoppedEarly(window); return; }
 
                     bool rendered = await Task.Render();
                     IImageTask imageTask = Task as IImageTask;
@@ -287,6 +319,7 @@ namespace LogicReinc.BlendFarm.Objects
                     window.RefreshCurrentProject();
                     queueWatch.Stop();
                     _owner.NotifyRenderCompleted(BuildCompletionInfo(true, queueWatch.Elapsed, null, manager));
+                    savedFrames = 1;
                 }
                 else
                 {
@@ -295,11 +328,22 @@ namespace LogicReinc.BlendFarm.Objects
                         throw new ArgumentException("Missing frameformat for animation");
 
                     //Normal Render
-                    int endFrame = Settings.Frame + Frames - 1;
+                    int[] selectedFrames = GetFrameNumbers();
+                    int endFrame = selectedFrames.Last();
+                    Directory.CreateDirectory(SaveTo);
                     //Resume: leave out frames that already have an output file
-                    List<int> skipFrames = (Project?.SkipExistingFrames ?? false)
-                        ? OutputNaming.FindExistingFrames(SaveTo, Settings.Frame, endFrame, (f) => OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(f, Settings.Frame, endFrame)))
+                    List<int> skipFrames = (SkipExistingFrames ?? Project?.SkipExistingFrames ?? false)
+                        ? selectedFrames.Where(frame => File.Exists(Path.Combine(SaveTo, OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(frame, Settings.Frame, endFrame))))).ToList()
                         : new List<int>();
+                    if (skipFrames.Count == selectedFrames.Length)
+                    {
+                        FinishedAllFrames = true;
+                        queueWatch.Stop();
+                        if (EncodeMp4)
+                            await _owner.EncodeAnimationAsync(Project, FrameFormat, SaveTo, selectedFrames.Select(frame => Path.Combine(SaveTo,
+                                OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(frame, Settings.Frame, endFrame)))).ToArray(), EncodingFPS);
+                        return;
+                    }
                     Task = manager.GetAnimationTask(Project.BlendFile, Settings.Frame, endFrame, Settings, (task, frame) =>
                     {
 
@@ -317,6 +361,7 @@ namespace LogicReinc.BlendFarm.Objects
                             throw;
                         }
 
+                        Interlocked.Increment(ref savedFrames);
                         try
                         {
                             SKBitmap image = ImageConverter.Convert(frame.Image, task.Parent.Settings.RenderFormat);
@@ -351,6 +396,7 @@ namespace LogicReinc.BlendFarm.Objects
                         RefreshInfo();
                         window.RefreshCurrentProject();
                     }, skipFrames);
+                    ((AnimationTask)Task).SelectedFrames = selectedFrames;
                     Task.OnProgress += (t, p) =>
                     {
                         if (p >= 1)
@@ -369,6 +415,8 @@ namespace LogicReinc.BlendFarm.Objects
 
                     await System.Threading.Tasks.Task.Delay(500);
 
+                    if (Cancelled) { await Task.Cancel(); StoppedEarly(window); return; }
+
                     bool renderedAnim = await Task.Render();
                     //await Task.RenderAnimation(Settings.Frame, Settings.Frame + Frames);
                     if (!renderedAnim || Task.Cancelled)
@@ -383,10 +431,19 @@ namespace LogicReinc.BlendFarm.Objects
                     window.RefreshCurrentProject();
                     queueWatch.Stop();
                     _owner.NotifyRenderCompleted(BuildCompletionInfo(true, queueWatch.Elapsed, null, manager));
+                    if (EncodeMp4)
+                        await _owner.EncodeAnimationAsync(Project, FrameFormat, SaveTo, selectedFrames.Select(frame => Path.Combine(SaveTo, OutputNaming.FormatOutputFileName(FrameFormat, BuildContext(frame, Settings.Frame, endFrame)))).ToArray(), EncodingFPS);
                 }
             }
             catch (Exception ex)
             {
+                FinishedAllFrames = false;
+                if (Cancelled || (Task?.Cancelled ?? false)) { StoppedEarly(window); return; }
+                if (Task is AnimationTask animation)
+                {
+                    animation.FinishFailedFrameReport(Cancelled || animation.Cancelled);
+                    _owner.ShowQueueAnimationFailures(this);
+                }
                 if (Task != null && !Task.Consumed)
                     Task.Cancel();
                 Exception = ex.Message;
@@ -396,6 +453,13 @@ namespace LogicReinc.BlendFarm.Objects
                 window.RefreshCurrentProject();
                 queueWatch.Stop();
                 _owner.NotifyRenderCompleted(BuildCompletionInfo(false, queueWatch.Elapsed, ex.Message, manager));
+            }
+            finally
+            {
+                if (savedFrames > 0) _owner.RecordQueueTiming(savedFrames, queueWatch.Elapsed);
+                _executing = false;
+                Project.SetRenderTask(null);
+                RefreshInfo();
             }
         }
 
@@ -422,6 +486,11 @@ namespace LogicReinc.BlendFarm.Objects
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsDeletable)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCancelable)));
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SettingsSummary)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFailed)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FailedFramesSummary)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasFailedFrames)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SaveToDisplay)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RenderKind)));
             });
         }
 
@@ -429,7 +498,7 @@ namespace LogicReinc.BlendFarm.Objects
         public async Task CancelQueueItem()
         {
             Cancelled = true;
-            if (Task != null && Task.Consumed)
+            if (Task != null)
                 await Task.Cancel();
 
             RefreshInfo();

@@ -500,6 +500,7 @@ namespace LogicReinc.BlendFarm.Client
                         continue;
 
                     failed.Add(task);
+                    _owner.NotifySubTaskFailed(node, task);
                     if (!_failedOn.TryGetValue(task, out HashSet<RenderNode> failedOn))
                         _failedOn[task] = failedOn = new HashSet<RenderNode>();
                     failedOn.Add(node);
