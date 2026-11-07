@@ -36,6 +36,20 @@ namespace LogicReinc.BlendFarm.Client
         /// </summary>
         public bool Crop { get; set; } = false;
 
+        /// <summary>
+        /// Failed attempts at this subtask so far (attempts lost to a node disconnect or to a cancel aren't counted)
+        /// </summary>
+        public int Attempts { get; internal set; }
+        /// <summary>
+        /// Scheduling state of this subtask
+        /// </summary>
+        public SubTaskState State { get; internal set; } = SubTaskState.Queued;
+
+        /// <summary>
+        /// Number of pixels this subtask renders
+        /// </summary>
+        public long Pixels => (long)((Parent.Settings.OutputWidth * (X2 - X)) * (Parent.Settings.OutputHeight * (Y2 - Y)));
+
         public RenderSubTask(RenderTask parent, decimal x, decimal x2, decimal y, decimal y2, int frame)
         {
             Parent = parent;
@@ -134,5 +148,17 @@ namespace LogicReinc.BlendFarm.Client
 
             return major < 3;
         }
+    }
+
+    public enum SubTaskState
+    {
+        /// <summary>Waiting in the queue</summary>
+        Queued,
+        /// <summary>Being rendered by one or more nodes</summary>
+        Running,
+        /// <summary>Result accepted</summary>
+        Done,
+        /// <summary>Given up on after too many failed attempts</summary>
+        Failed
     }
 }

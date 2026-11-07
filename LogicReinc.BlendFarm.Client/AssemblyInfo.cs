@@ -20,3 +20,5 @@ using System.Runtime.InteropServices;
 
 [assembly: AssemblyVersion("1.1.6.0")]
 [assembly: AssemblyFileVersion("1.1.6.0")] 
+
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("LogicReinc.BlendFarm.Tests")]
