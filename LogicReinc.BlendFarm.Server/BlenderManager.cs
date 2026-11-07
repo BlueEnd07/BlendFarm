@@ -361,7 +361,7 @@ namespace LogicReinc.BlendFarm.Server
             {
                 List<(string, string)> links = new List<(string, string)>();
                 using (FileStream str = new FileStream(archivePath, FileMode.Open))
-                using (var reader = ReaderFactory.Open(str))
+                using (var reader = ReaderFactory.OpenReader(str))
                 {
                     while (reader.MoveToNextEntry())
                     {

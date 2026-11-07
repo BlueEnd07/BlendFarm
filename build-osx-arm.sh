@@ -4,7 +4,7 @@ read version
 echo Building version $version
 
 echo Publishing BlendFarm OSX-ARM64
-dotnet publish LogicReinc.BlendFarm -f net6.0 -c Release -r osx-arm64 -p:PublishSingleFile=true -p:PublishReadyToRunShowWarnings=false --self-contained true -o Deploy/LogicReinc.BlendFarm/_Build/osx-arm64
+dotnet publish LogicReinc.BlendFarm -f net8.0 -c Release -r osx-arm64 -p:PublishSingleFile=true -p:PublishReadyToRunShowWarnings=false --self-contained true -o Deploy/LogicReinc.BlendFarm/_Build/osx-arm64
 
 #Preparing BlendFarm
 cd Deploy/LogicReinc.BlendFarm
